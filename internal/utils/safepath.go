@@ -32,7 +32,7 @@ func SafeJoin(base, untrusted string) (string, error) {
 	// Resolve symlinks on base so the containment check is reliable.
 	realBase, err := filepath.EvalSymlinks(absBase)
 	if err != nil {
-		// Base doesn't exist — fall back to the cleaned absolute path.
+		// Base doesn't exist - fall back to the cleaned absolute path.
 		realBase = absBase
 	}
 
@@ -40,7 +40,7 @@ func SafeJoin(base, untrusted string) (string, error) {
 		return realBase, nil
 	}
 
-	// Reject absolute paths — untrusted input must be relative.
+	// Reject absolute paths - untrusted input must be relative.
 	if filepath.IsAbs(untrusted) {
 		return "", ErrOutsideBase
 	}

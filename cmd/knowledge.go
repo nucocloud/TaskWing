@@ -111,7 +111,7 @@ func runKnowledge(cmd *cobra.Command, args []string) error {
 			cmd.Printf(" in workspace '%s'", workspace)
 		}
 		cmd.Println(".")
-		cmd.Println("Run 'taskwing bootstrap' to populate project memory.")
+		cmd.Println("Run 'taskwing learn' to populate project memory.")
 		return nil
 	}
 

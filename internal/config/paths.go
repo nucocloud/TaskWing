@@ -222,7 +222,7 @@ func GetMemoryBasePath() (string, error) {
 	// Reject CWD-fallback contexts (MarkerNone) to prevent accidental writes to HOME.
 	// Exception: multi-repo workspaces are legitimately MarkerNone but have IsMonorepo=true.
 	if ctx.MarkerType == project.MarkerNone && !ctx.IsMonorepo {
-		return "", fmt.Errorf("no project marker found at %q: run 'taskwing bootstrap' in a project directory", ctx.RootPath)
+		return "", fmt.Errorf("no project marker found at %q: run 'taskwing learn' in a project directory", ctx.RootPath)
 	}
 
 	return GetProjectStorePath(ctx.RootPath)

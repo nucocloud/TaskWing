@@ -10,7 +10,7 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Shared Response Types — Used by both CLI and MCP for consistency
+// Shared Response Types - Used by both CLI and MCP for consistency
 // -----------------------------------------------------------------------------
 
 // EvidenceRef is a compact file:line reference for AI to cite
@@ -135,7 +135,7 @@ type ProjectSummary struct {
 }
 
 // -----------------------------------------------------------------------------
-// Debug Retrieval Types — Raw search results for inspection and debugging
+// Debug Retrieval Types - Raw search results for inspection and debugging
 // -----------------------------------------------------------------------------
 
 // DebugRetrievalResult represents a single search result with full debug information.

@@ -6,7 +6,7 @@ import (
 
 // GenerateArchitectureMD creates a comprehensive ARCHITECTURE.md file
 // that consolidates all project knowledge into a single document.
-// All data is sourced from the nodes table — the single source of truth.
+// All data is sourced from the nodes table - the single source of truth.
 func (r *Repository) GenerateArchitectureMD(projectName string) error {
 	allNodes, err := r.db.ListNodes("")
 	if err != nil {

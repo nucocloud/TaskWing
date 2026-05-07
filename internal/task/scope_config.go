@@ -36,7 +36,6 @@ var defaultScopeKeywords = map[string][]string{
 	"vectorsearch": {"vector", "embedding", "lancedb", "similarity", "semantic", "search", "rag", "retrieval"},
 	"llm":          {"llm", "openai", "claude", "gemini", "ollama", "prompt", "completion", "chat", "model", "inference"},
 	"cli":          {"cli", "command", "flag", "cobra", "terminal", "argument", "subcommand"},
-	"mcp":          {"mcp", "tool", "protocol", "context", "stdio", "jsonrpc"},
 	"bootstrap":    {"bootstrap", "scan", "analyze", "extract", "discover", "pattern"},
 	"ui":           {"ui", "tui", "interface", "display", "render", "bubbletea", "lipgloss"},
 	"test":         {"test", "testing", "mock", "fixture", "assert", "benchmark", "coverage"},

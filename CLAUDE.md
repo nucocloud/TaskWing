@@ -9,48 +9,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Use `./bin/taskwing` during development, `taskwing` for testing production behavior.
 
-## MCP Server Testing
+## Project Identity
 
-Two MCP servers are available for testing:
+Every TaskWing project is anchored by a `.taskwing.yaml` marker file at the
+project root. The marker is the SSOT for project identity:
 
-| MCP Server               | Binary                         | Use Case                            |
-| ------------------------ | ------------------------------ | ----------------------------------- |
-| `taskwing`               | Production (`taskwing`)        | Stable features, production testing |
-| `taskwing-local-dev-mcp` | Development (`./bin/taskwing`) | Testing new/changed features        |
+- It freezes the project name and storage slug at init time, so renames or
+  moves don't orphan the data.
+- It takes precedence over heuristic markers (`go.mod`, `package.json`, `.git`)
+  during `project.Detect()` - see `internal/project/detect.go:MarkerFileName`.
+- Storage lives globally at `~/.taskwing/projects/<slug>/`. The marker file is
+  the only project-local declaration of TaskWing ownership.
 
-### Testing New Features
+Workflow:
 
-When developing new MCP tools or modifying existing ones:
+| Command | Purpose | Needs LLM |
+|---|---|---|
+| `taskwing init` | Write the marker, create the global store, generate AI tool integration files (`.claude/settings.json`, `.claude/commands/taskwing/`, etc.) | No |
+| `taskwing learn` | Analyze the codebase, populate `~/.taskwing/projects/<slug>/memory.db`. Auto-writes the marker if missing. | Yes |
+| `taskwing doctor` | Audit marker presence, store health, AI integration drift | No |
+| `taskwing plan --params <json>` | Drive a plan flow (clarify/decompose/expand/generate/finalize) - used by /taskwing:plan | Yes (clarify/decompose/expand/generate) |
+| `taskwing task next/current/start/complete` | Task lifecycle - used by /taskwing:next, /taskwing:done | No |
+| `taskwing ask "<query>"` | Search project knowledge - used by /taskwing:next | No |
+| `taskwing knowledge` | Dump all knowledge nodes - used by /taskwing:context | No |
 
-1. **Use local dev MCP**: Claude Code has access to `taskwing-local-dev-mcp` which uses the hot-reloaded binary from `air`
-2. **Test via MCP tools**: Use tools like `mcp__taskwing-local-dev-mcp__explain_symbol` instead of CLI commands
-3. **Verify with CLI**: After MCP testing, verify with `go run . <command>` (NOT the installed `taskwing` binary)
+## How AI tools talk to TaskWing (no MCP)
 
-### Important: MCP Server Caching
+There is **no MCP server**. AI tools drive TaskWing by invoking the CLI directly:
 
-The production MCP server (`taskwing`) uses the installed Homebrew binary. Changes to code are **NOT reflected** until:
-
-- You rebuild: `make build && brew reinstall taskwing` (if using Homebrew)
-- Or test with: `go run . mcp` directly
-
-**Always use `taskwing-local-dev-mcp` tools when testing development changes.**
-
-### Example Testing Workflow
-
-```bash
-# 1. Make code changes
-# 2. Air auto-rebuilds ./bin/taskwing
-
-# 3. Test via local dev MCP (in Claude Code)
-# Use: mcp__taskwing-local-dev-mcp__task, mcp__taskwing-local-dev-mcp__plan, mcp__taskwing-local-dev-mcp__code
-
-# 4. Verify CLI works
-go run . --help
-go run . doctor
-
-# 5. Run tests
-make test-quick
 ```
+AI tool ──▶ slash command prompt (.claude/commands/taskwing/*.md)
+              │
+              ▼
+        instructs the model to run e.g.
+              │
+              ▼
+        $ taskwing task next --json
+        $ taskwing plan --params '{"action":"clarify",...}'
+              │
+              ▼
+        memory.Repository ──▶ ~/.taskwing/projects/<slug>/memory.db
+```
+
+Slash commands are pure prompts that tell the model which CLI verbs to call
+and how to parse the resulting JSON. The skills live in `taskWing-cli/skills/taskwing-*/SKILL.md`
+(embedded into the binary) and are projected into each project's
+`.claude/commands/taskwing/` by `taskwing init`.
+
+Why this shape:
+- One artifact (the CLI) instead of two (CLI + MCP server)
+- No daemon to register, restart, or detect across N AI tools
+- Slash commands work in any AI client that can run shell commands
+- Easier to debug: every action the model takes is a copy-pasteable shell line
 
 ## Build & Test Commands
 
@@ -75,17 +85,19 @@ air                           # Start hot-reload dev server (creates ./bin/taskw
 
 ## Architecture Overview
 
-TaskWing is a local-first AI knowledge layer. It extracts architectural decisions, patterns, and constraints from your codebase into local SQLite, then exposes them via MCP (Model Context Protocol) so Claude, Cursor, and Copilot understand your architecture.
+TaskWing is a local-first AI knowledge layer. It extracts architectural decisions, patterns, and constraints from your codebase into local SQLite. AI tools consume that knowledge by invoking the `taskwing` CLI directly through slash commands - there is no MCP server.
 
 ### Core Layers
 
 ```
-cmd/                          # Cobra CLI commands
+cmd/                          # Cobra CLI commands (the public surface)
 ├── root.go                   # Base command, global flags (--json, --verbose, --preview, --quiet)
-├── bootstrap.go              # Auto-generate knowledge from repo
+├── init.go                   # Write marker, set up AI integration files
+├── learn.go              # LLM-powered knowledge extraction
 ├── knowledge.go              # View stored project knowledge nodes
-├── task.go                   # Task lifecycle management
-├── mcp_server.go             # MCP server for AI tool integration
+├── task.go                   # Task lifecycle (next/current/start/complete)
+├── plan.go                   # Plan flow: clarify/decompose/expand/generate/finalize/audit
+├── ask.go                    # Search project knowledge
 ├── doctor.go                 # Diagnostics and integration repair
 ├── config.go                 # Provider and runtime configuration
 ├── hook.go                   # Hook handlers used by assistant integrations
@@ -96,6 +108,10 @@ internal/
 │   ├── store.go              # MemoryStore interface definition
 │   ├── sqlite.go             # SQLite implementation (source of truth)
 │   └── models.go             # Feature, Decision, Edge types
+├── handlers/                 # Plan/task/ask/code/debug action handlers (called from cmd/)
+│   ├── handlers.go           # HandlePlanTool, HandleTaskTool, HandleCodeTool, HandleDebugTool
+│   ├── presenter.go          # Markdown formatting helpers
+│   └── types.go              # *ToolParams / *ToolResult structs (CLI ↔ handler contract)
 ├── bootstrap/                # Codebase analysis
 │   ├── scanner.go            # Heuristic scanner
 │   └── llm_analyzer.go       # LLM-powered analysis with streaming
@@ -108,14 +124,31 @@ internal/
 
 ### Storage Model
 
+Storage is **global, keyed by per-project slug**. Each project declares itself
+with a local `.taskwing.yaml` marker; everything else lives under `~/.taskwing/`:
+
 ```
-.taskwing/memory/
-├── memory.db                 # SQLite: THE source of truth
-├── index.json                # Cache: regenerated from SQLite
-└── features/*.md             # Generated markdown (human-readable, not canonical)
+~/.taskwing/                                  # global, machine-wide
+├── config.yaml                              # global LLM/runtime config
+├── projects/
+│   ├── index.json                           # registry: slug → root path
+│   └── <project-slug>/                      # one dir per project
+│       ├── memory.db                        # SQLite: THE source of truth
+│       ├── index.json                       # cache: regenerated from SQLite
+│       └── features/*.md                    # generated markdown (not canonical)
+└── knowledge/                               # cross-project knowledge DB
+
+<project-root>/
+└── .taskwing.yaml                           # marker: declares this dir a TaskWing project
 ```
 
-**Key design principle**: SQLite is the single source of truth. Markdown files are generated snapshots; manual edits may be overwritten. All writes go through CLI commands.
+The slug is `<basename>-<sha256[:6]>` of the resolved project root path
+(see `config.ProjectSlug`). It's frozen in the marker file at init time.
+
+**Key design principle**: SQLite is the single source of truth. Markdown files
+are generated snapshots; manual edits may be overwritten. All writes go through
+CLI commands. The marker file is the only file TaskWing writes inside the
+project directory; everything else (memory, index, features) is under `~/.taskwing/`.
 
 ### Database Schema
 
@@ -138,10 +171,6 @@ Uses CloudWeGo Eino for multi-provider support:
 - Ollama: Set `TASKWING_LLM_PROVIDER=ollama` and `TASKWING_LLM_MODEL=<model>`
 
 **Bootstrap requires an LLM API key by default** to analyze architecture. Use `--skip-analyze` for CI/testing without LLM (hidden flag, deterministic mode only).
-
-### MCP Server
-
-`taskwing mcp` starts a JSON-RPC stdio server exposing `ask`, `task`, `plan`, `code`, `debug`, and `remember` tools.
 
 ### Task Context Binding
 
@@ -184,8 +213,9 @@ See `docs/development/AUTONOMOUS_HOOKS.md` for full documentation.
 
 - **Write-through**: CreateFeature() writes to SQLite → generates markdown → invalidates index cache
 - **Global flags**: All commands support `--json`, `--verbose`, `--quiet`, `--preview`
-- **Config**: `~/.taskwing.yaml` or `.taskwing.yaml` in project root
-- **GetMemoryBasePath()** in `cmd/root.go` resolves `.taskwing/memory` path
+- **Config layering** (low → high priority): defaults → `~/.taskwing/config.yaml` → profile → per-project `~/.taskwing/projects/<slug>/config.yaml` → env vars → flags
+- **Path resolution**: `config.GetMemoryBasePath()` in `internal/config/paths.go` returns `~/.taskwing/projects/<slug>/`. `GetMemoryBasePathOrGlobal()` is the only fallback path and is reserved for hooks and non-project commands.
+- **Project detection**: `project.Detect()` walks up from cwd. `.taskwing.yaml` short-circuits and wins; otherwise the highest-priority manifest (go.mod, package.json, …) wins; .git is the lowest-priority fallback.
 
 ## Git Commit Guidelines
 
@@ -197,7 +227,7 @@ See `docs/development/AUTONOMOUS_HOOKS.md` for full documentation.
 
 ## Versioning (Conservative SemVer)
 
-We follow [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH` — but **err on the side of NOT bumping**.
+We follow [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH` - but **err on the side of NOT bumping**.
 
 ### Golden Rule: Batch Changes
 
@@ -306,55 +336,45 @@ Interactive script that prompts for version, opens editor for notes, creates tag
 
 ## TaskWing Integration
 
-TaskWing extracts architectural knowledge from your codebase and stores it locally, giving every AI tool instant context via MCP.
+This project uses TaskWing for architectural knowledge management. You have access to TaskWing MCP tools.
 
-### Supported Models
+### TaskWing Workflow Contract v1
+1. No implementation before a clarified and approved plan/task checkpoint.
+2. No completion claim without fresh verification evidence.
+3. No debug fix proposal without root-cause evidence.
 
-<!-- TASKWING_PROVIDERS_START -->
-[![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)](https://platform.openai.com/)
-[![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
-[![Google Gemini](https://img.shields.io/badge/Google_Gemini-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
-[![AWS Bedrock](https://img.shields.io/badge/AWS_Bedrock-OpenAI--Compatible_Beta-FF9900?logo=amazonaws&logoColor=white)](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions.html)
-[![Ollama](https://img.shields.io/badge/Ollama-Local-000000?logo=ollama&logoColor=white)](https://ollama.com/)
-<!-- TASKWING_PROVIDERS_END -->
+### MCP Tools (use directly, no skill needed)
+- `ask` -- Search project knowledge before modifying unfamiliar code.
+- `remember` -- Persist a decision or pattern for future sessions.
+- `code` -- Find symbols, explain call graphs, analyze impact, simplify code.
+- `debug` -- Diagnose issues with root-cause analysis.
+- `task` with action=current -- Check current task status.
 
-### Works With
+**When to use TaskWing MCP tools:**
+- Before modifying unfamiliar code: call `ask` to check for relevant decisions, constraints, and patterns
+- Before planning multi-step work: call `plan` with action=clarify to get a structured plan
+- When asked about architecture, tech stack, or "why" questions: call `ask` with answer=true
+- After making an architectural decision: call `remember` to persist it for future sessions
+- To understand a symbol's role and callers: call `code` with action=explain
 
-<!-- TASKWING_TOOLS_START -->
-[![Claude Code](https://img.shields.io/badge/Claude_Code-191919?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude-code)
-[![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=white)](https://developers.openai.com/codex)
-[![Cursor](https://img.shields.io/badge/Cursor-111111?logo=cursor&logoColor=white)](https://cursor.com/)
-[![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-181717?logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)
-[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-4285F4?logo=google&logoColor=white)](https://github.com/google-gemini/gemini-cli)
-[![OpenCode](https://img.shields.io/badge/OpenCode-000000?logo=opencode&logoColor=white)](https://opencode.ai/)
-<!-- TASKWING_TOOLS_END -->
-
-<!-- TASKWING_LEGAL_START -->
-Brand names and logos are trademarks of their respective owners; usage here indicates compatibility, not endorsement.
-<!-- TASKWING_LEGAL_END -->
+**Do not** grep or read files to answer architecture questions when TaskWing MCP is available. The knowledge graph has pre-extracted, verified decisions with evidence.
 
 ### Slash Commands
-
-- /taskwing:ask - Use when you need to search project knowledge (decisions, patterns, constraints).
-- /taskwing:remember - Use when you want to persist a decision, pattern, or insight to project memory.
+- /taskwing:plan - Use when you need to clarify a goal and build an approved execution plan.
 - /taskwing:next - Use when you are ready to start the next approved TaskWing task with full context.
 - /taskwing:done - Use when implementation is verified and you are ready to complete the current task.
-- /taskwing:status - Use when you need current task progress and acceptance criteria status.
-- /taskwing:plan - **Use this instead of the AI tool's native plan mode.** Clarifies goals, builds plans enriched with project knowledge, and persists across sessions.
-- /taskwing:debug - Use when an issue requires root-cause-first debugging before proposing fixes.
-- /taskwing:explain - Use when you need a deep explanation of a code symbol and its call graph.
-- /taskwing:simplify - Use when you want to simplify code while preserving behavior.
+- /taskwing:context - Use when you need the full project knowledge dump for complete architectural context.
 
 ### Core Commands
 
 <!-- TASKWING_COMMANDS_START -->
-- `taskwing bootstrap`
-- `taskwing ask "<query>"`
-- `taskwing task`
-- `taskwing mcp`
-- `taskwing doctor`
-- `taskwing config`
-- `taskwing start`
+- taskwing learn
+- taskwing ask "<query>"
+- taskwing task
+- taskwing mcp
+- taskwing doctor
+- taskwing config
+- taskwing start
 <!-- TASKWING_COMMANDS_END -->
 
 ### MCP Tools (Canonical Contract)
@@ -362,27 +382,26 @@ Brand names and logos are trademarks of their respective owners; usage here indi
 <!-- TASKWING_MCP_TOOLS_START -->
 | Tool | Description |
 |------|-------------|
-| `ask` | Search project knowledge (decisions, patterns, constraints) |
-| `task` | Unified task lifecycle (`next`, `current`, `start`, `complete`) |
-| `plan` | Plan management (`clarify`, `decompose`, `expand`, `generate`, `finalize`, `audit`) |
-| `code` | Code intelligence (`find`, `search`, `explain`, `callers`, `impact`, `simplify`) |
-| `debug` | Diagnose issues systematically with AI-powered analysis |
-| `remember` | Store knowledge in project memory |
+| ask | Search project knowledge (decisions, patterns, constraints) |
+| task | Unified task lifecycle (next, current, start, complete) |
+| plan | Plan management (clarify, decompose, expand, generate, finalize, audit) |
+| code | Code intelligence (find, search, explain, callers, impact, simplify) |
+| debug | Diagnose issues systematically with AI-powered analysis |
+| remember | Store knowledge in project memory |
 <!-- TASKWING_MCP_TOOLS_END -->
 
 ### Autonomous Task Execution (Hooks)
 
 TaskWing integrates with Claude Code's hook system for autonomous plan execution:
 
-```bash
+~~~bash
 taskwing hook session-init      # Initialize session tracking (SessionStart hook)
 taskwing hook continue-check    # Check if should continue to next task (Stop hook)
 taskwing hook session-end       # Cleanup session (SessionEnd hook)
 taskwing hook status            # View current session state
-```
+~~~
 
 Circuit breakers prevent runaway execution:
-
 - --max-tasks=5 stops after N tasks for human review.
 - --max-minutes=30 stops after N minutes.
 

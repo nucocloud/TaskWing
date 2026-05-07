@@ -82,7 +82,7 @@ Brand names and logos are trademarks of their respective owners; usage here indi
 ## Core Commands
 
 <!-- TASKWING_COMMANDS_START -->
-- `taskwing bootstrap`
+- `taskwing learn`
 - `taskwing ask "<query>"`
 - `taskwing task`
 - `taskwing mcp`

@@ -59,7 +59,7 @@ func NewSQLiteStore(basePath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
-	// Migrations — add columns only if they don't already exist
+	// Migrations - add columns only if they don't already exist
 	migrateAddColumn(db, "tasks", "complexity", `ALTER TABLE tasks ADD COLUMN complexity TEXT DEFAULT 'medium'`)
 	migrateAddColumn(db, "plans", "draft_state", `ALTER TABLE plans ADD COLUMN draft_state TEXT`)
 	migrateAddColumn(db, "plans", "generation_mode", `ALTER TABLE plans ADD COLUMN generation_mode TEXT DEFAULT 'batch'`)
@@ -1376,7 +1376,7 @@ func (s *SQLiteStore) ClearAllKnowledge() error {
 	}
 	defer func() { rollbackWithLog(tx, "sqlite") }()
 
-	// Clear knowledge tables (legacy tables left intact — harmless, avoids migration issues)
+	// Clear knowledge tables (legacy tables left intact - harmless, avoids migration issues)
 	tables := []string{"node_edges", "nodes"}
 	for _, table := range tables {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {

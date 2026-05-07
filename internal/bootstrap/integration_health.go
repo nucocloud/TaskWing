@@ -9,8 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/josephgoksu/TaskWing/internal/config"
 )
 
 // Ownership describes who owns a configuration artifact.
@@ -36,11 +34,9 @@ const (
 type AIComponent string
 
 const (
-	AIComponentCommands  AIComponent = "commands"
-	AIComponentHooks     AIComponent = "hooks"
-	AIComponentPlugin    AIComponent = "plugin"
-	AIComponentMCPLocal  AIComponent = "mcp_local"
-	AIComponentMCPGlobal AIComponent = "mcp_global"
+	AIComponentCommands AIComponent = "commands"
+	AIComponentHooks    AIComponent = "hooks"
+	AIComponentPlugin   AIComponent = "plugin"
 )
 
 // IntegrationIssue is a normalized drift signal used by bootstrap + doctor.
@@ -63,13 +59,11 @@ type IntegrationReport struct {
 	ComponentOwnership    map[AIComponent]Ownership       `json:"component_ownership,omitempty"`
 	ManagedLocalDrift     bool                            `json:"managed_local_drift"`
 	UnmanagedDrift        bool                            `json:"unmanaged_drift"`
-	GlobalMCPDrift        bool                            `json:"global_mcp_drift"`
 	CommandsDirExists     bool                            `json:"commands_dir_exists"`
 	MarkerFileExists      bool                            `json:"marker_file_exists"`
 	CommandFilesCount     int                             `json:"command_files_count"`
 	HooksConfigExists     bool                            `json:"hooks_config_exists"`
 	HooksConfigValid      bool                            `json:"hooks_config_valid"`
-	GlobalMCPExists       bool                            `json:"global_mcp_exists"`
 	TaskWingLikeUnmanaged bool                            `json:"taskwing_like_unmanaged"`
 }
 
@@ -97,21 +91,20 @@ type RepairPlanOptions struct {
 }
 
 // EvaluateIntegrations runs a shared health evaluation across all supported AIs.
-func EvaluateIntegrations(basePath string, globalMCP map[string]bool) map[string]IntegrationReport {
+func EvaluateIntegrations(basePath string) map[string]IntegrationReport {
 	reports := make(map[string]IntegrationReport, len(ValidAINames()))
 	for _, ai := range ValidAINames() {
-		reports[ai] = EvaluateIntegration(basePath, ai, globalMCP[ai])
+		reports[ai] = EvaluateIntegration(basePath, ai)
 	}
 	return reports
 }
 
-// EvaluateIntegration evaluates one AI integration from filesystem + global MCP signal.
-func EvaluateIntegration(basePath, aiName string, globalMCPExists bool) IntegrationReport {
+// EvaluateIntegration evaluates one AI integration from filesystem state.
+func EvaluateIntegration(basePath, aiName string) IntegrationReport {
 	report := IntegrationReport{
 		AI:                 aiName,
 		ComponentStatuses:  make(map[AIComponent]ComponentStatus),
 		ComponentOwnership: make(map[AIComponent]Ownership),
-		GlobalMCPExists:    globalMCPExists,
 	}
 
 	cfg, ok := aiHelpers[aiName]
@@ -162,20 +155,6 @@ func EvaluateIntegration(basePath, aiName string, globalMCPExists bool) Integrat
 			}
 		}
 
-		report.ComponentStatuses[AIComponentMCPGlobal] = boolToStatus(globalMCPExists)
-		report.ComponentOwnership[AIComponentMCPGlobal] = OwnershipNone
-		if localConfigured && !globalMCPExists {
-			report.Issues = append(report.Issues, IntegrationIssue{
-				AI:            aiName,
-				Component:     AIComponentMCPGlobal,
-				Ownership:     OwnershipNone,
-				Status:        ComponentStatusMissing,
-				Reason:        "global taskwing MCP registration missing",
-				AutoFixable:   true,
-				MutatesGlobal: true,
-				AdoptRequired: false,
-			})
-		}
 	}
 
 	if aiName == "opencode" {
@@ -199,53 +178,14 @@ func EvaluateIntegration(basePath, aiName string, globalMCPExists bool) Integrat
 					AdoptRequired: pluginOwner == OwnershipUnmanaged,
 				})
 			}
-
-			localStatus, localReason := evalOpenCodeLocalMCP(basePath)
-			report.ComponentStatuses[AIComponentMCPLocal] = localStatus
-			report.ComponentOwnership[AIComponentMCPLocal] = OwnershipNone
-			if localStatus != ComponentStatusOK {
-				report.Issues = append(report.Issues, IntegrationIssue{
-					AI:            aiName,
-					Component:     AIComponentMCPLocal,
-					Ownership:     OwnershipNone,
-					Status:        localStatus,
-					Reason:        localReason,
-					AutoFixable:   true,
-					MutatesGlobal: false,
-					AdoptRequired: false,
-				})
-			}
-		}
-	}
-
-	if aiName == "gemini" || aiName == "cursor" || aiName == "copilot" {
-		localMCPPath := localMCPConfigPath(basePath, aiName)
-		if localConfigured || pathExists(localMCPPath) {
-			localStatus, localReason := evalLocalMCPComponent(basePath, aiName)
-			report.ComponentStatuses[AIComponentMCPLocal] = localStatus
-			report.ComponentOwnership[AIComponentMCPLocal] = OwnershipNone
-			if localStatus != ComponentStatusOK {
-				report.Issues = append(report.Issues, IntegrationIssue{
-					AI:            aiName,
-					Component:     AIComponentMCPLocal,
-					Ownership:     OwnershipNone,
-					Status:        localStatus,
-					Reason:        localReason,
-					AutoFixable:   true,
-					MutatesGlobal: false,
-					AdoptRequired: false,
-				})
-			}
 		}
 	}
 
 	for _, issue := range report.Issues {
 		switch {
-		case issue.MutatesGlobal:
-			report.GlobalMCPDrift = true
-		case issue.Ownership == OwnershipManaged && !issue.MutatesGlobal:
+		case issue.Ownership == OwnershipManaged:
 			report.ManagedLocalDrift = true
-		case issue.Ownership == OwnershipUnmanaged && !issue.MutatesGlobal:
+		case issue.Ownership == OwnershipUnmanaged:
 			report.UnmanagedDrift = true
 		}
 	}
@@ -313,20 +253,9 @@ func primitiveForComponent(component AIComponent) string {
 		return "repairHooks"
 	case AIComponentPlugin:
 		return "repairPlugin"
-	case AIComponentMCPLocal:
-		return "repairLocalMCP"
-	case AIComponentMCPGlobal:
-		return "repairGlobalMCP"
 	default:
 		return "repairUnknown"
 	}
-}
-
-func boolToStatus(ok bool) ComponentStatus {
-	if ok {
-		return ComponentStatusOK
-	}
-	return ComponentStatusMissing
 }
 
 func evalCommandsComponent(basePath, aiName string, cfg aiHelperConfig) (ComponentStatus, Ownership, bool, bool, int, bool, string) {
@@ -592,115 +521,12 @@ func evalOpenCodePluginComponent(basePath string, commandsOwnership Ownership) (
 	return ComponentStatusOK, owner, ""
 }
 
-func evalLocalMCPComponent(basePath, aiName string) (ComponentStatus, string) {
-	switch aiName {
-	case "gemini":
-		path := filepath.Join(basePath, ".gemini", "settings.json")
-		return hasTaskWingInMapJSON(path, "mcpServers")
-	case "cursor":
-		path := filepath.Join(basePath, ".cursor", "mcp.json")
-		return hasTaskWingInMapJSON(path, "mcpServers")
-	case "copilot":
-		path := filepath.Join(basePath, ".vscode", "mcp.json")
-		return hasTaskWingInMapJSON(path, "servers")
-	default:
-		return ComponentStatusOK, ""
-	}
-}
-
-func localMCPConfigPath(basePath, aiName string) string {
-	switch aiName {
-	case "gemini":
-		return filepath.Join(basePath, ".gemini", "settings.json")
-	case "cursor":
-		return filepath.Join(basePath, ".cursor", "mcp.json")
-	case "copilot":
-		return filepath.Join(basePath, ".vscode", "mcp.json")
-	default:
-		return ""
-	}
-}
-
 func pathExists(path string) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func evalOpenCodeLocalMCP(basePath string) (ComponentStatus, string) {
-	path := filepath.Join(basePath, "opencode.json")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return ComponentStatusMissing, "opencode.json missing"
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(content, &parsed); err != nil {
-		return ComponentStatusInvalid, "opencode.json invalid JSON"
-	}
-	mcpRaw, ok := parsed["mcp"]
-	if !ok {
-		return ComponentStatusMissing, "opencode.json missing mcp section"
-	}
-	mcpMap, ok := mcpRaw.(map[string]any)
-	if !ok {
-		return ComponentStatusInvalid, "opencode.json mcp section has invalid type"
-	}
-	for name := range mcpMap {
-		if config.IsLegacyServerName(name) {
-			return ComponentStatusInvalid, fmt.Sprintf("non-canonical MCP server key %q found (expected %q)", name, config.CanonicalServerName)
-		}
-	}
-	raw, ok := mcpMap[config.CanonicalServerName]
-	if !ok {
-		return ComponentStatusMissing, config.CanonicalServerName + " entry missing in opencode.json"
-	}
-	entry, ok := raw.(map[string]any)
-	if !ok {
-		return ComponentStatusInvalid, config.CanonicalServerName + " entry has invalid format"
-	}
-	typeStr, _ := entry["type"].(string)
-	if typeStr != "local" {
-		return ComponentStatusInvalid, config.CanonicalServerName + " entry type must be local"
-	}
-	cmdRaw, ok := entry["command"].([]any)
-	if !ok || len(cmdRaw) < 2 {
-		return ComponentStatusInvalid, config.CanonicalServerName + " command must be array with binary and mcp"
-	}
-	last, _ := cmdRaw[len(cmdRaw)-1].(string)
-	if strings.TrimSpace(last) != "mcp" {
-		return ComponentStatusInvalid, config.CanonicalServerName + " command must end with 'mcp'"
-	}
-	return ComponentStatusOK, ""
-}
-
-func hasTaskWingInMapJSON(path, rootKey string) (ComponentStatus, string) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return ComponentStatusMissing, fmt.Sprintf("%s missing", path)
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(content, &parsed); err != nil {
-		return ComponentStatusInvalid, fmt.Sprintf("invalid JSON in %s", path)
-	}
-	raw, ok := parsed[rootKey]
-	if !ok {
-		return ComponentStatusMissing, fmt.Sprintf("%s missing %s", path, rootKey)
-	}
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return ComponentStatusInvalid, fmt.Sprintf("%s has invalid %s format", path, rootKey)
-	}
-	if _, ok := m[config.CanonicalServerName]; ok {
-		return ComponentStatusOK, ""
-	}
-	for name := range m {
-		if config.IsLegacyServerName(name) {
-			return ComponentStatusInvalid, fmt.Sprintf("non-canonical MCP server key %q found (expected %q)", name, config.CanonicalServerName)
-		}
-	}
-	return ComponentStatusMissing, fmt.Sprintf("%s missing in %s", config.CanonicalServerName, path)
 }
 
 func parseManagedMarkerVersion(path string) string {
@@ -749,18 +575,6 @@ func UnmanagedDriftAIs(reports map[string]IntegrationReport) []string {
 	out := make([]string, 0)
 	for ai, report := range reports {
 		if report.UnmanagedDrift {
-			out = append(out, ai)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// GlobalMCPDriftAIs returns all AIs with global MCP drift.
-func GlobalMCPDriftAIs(reports map[string]IntegrationReport) []string {
-	out := make([]string, 0)
-	for ai, report := range reports {
-		if report.GlobalMCPDrift {
 			out = append(out, ai)
 		}
 	}

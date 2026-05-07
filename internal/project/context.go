@@ -5,7 +5,7 @@
 // and ensures TaskWing operates on the correct context without manual flags.
 //
 // Detection Strategy (Hierarchical Precedence):
-//  1. Explicit Context (.taskwing/): Highest priority. Respects existing SSoT.
+//  1. Explicit Marker (.taskwing.yaml): Highest priority. User-declared SSOT.
 //  2. Language Manifests: go.mod, package.json, Cargo.toml, etc.
 //  3. VCS Root (.git/): Medium priority fallback.
 //  4. CWD: Lowest priority, used if unanchored.
@@ -23,6 +23,11 @@ type MarkerType int
 const (
 	// MarkerNone indicates no project marker was found.
 	MarkerNone MarkerType = iota
+
+	// MarkerTaskWingYAML indicates a .taskwing.yaml marker file was found.
+	// This is the explicit, user-declared project root and takes priority
+	// over heuristic markers like go.mod or .git.
+	MarkerTaskWingYAML
 
 	// MarkerGoMod indicates a go.mod file was found.
 	MarkerGoMod
@@ -48,6 +53,8 @@ func (m MarkerType) String() string {
 	switch m {
 	case MarkerNone:
 		return "none"
+	case MarkerTaskWingYAML:
+		return ".taskwing.yaml"
 	case MarkerGoMod:
 		return "go.mod"
 	case MarkerPackageJSON:
@@ -69,6 +76,8 @@ func (m MarkerType) String() string {
 // Higher values indicate higher priority.
 func (m MarkerType) Priority() int {
 	switch m {
+	case MarkerTaskWingYAML:
+		return 100 // Highest - explicit user-declared root
 	case MarkerGoMod, MarkerPackageJSON, MarkerCargoToml, MarkerPomXML, MarkerPyProjectToml:
 		return 50 // Medium - language manifests
 	case MarkerGit:
@@ -76,6 +85,12 @@ func (m MarkerType) Priority() int {
 	default:
 		return 0
 	}
+}
+
+// IsExplicit returns true if this marker was explicitly declared by the user
+// (e.g. .taskwing.yaml), as opposed to inferred from language/vcs heuristics.
+func (m MarkerType) IsExplicit() bool {
+	return m == MarkerTaskWingYAML
 }
 
 // IsLanguageManifest returns true if this marker represents a language-specific manifest file.

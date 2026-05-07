@@ -105,7 +105,7 @@ func RenderAskResult(result *app.AskResult, verbose bool) {
 	// No results
 	if len(result.Results) == 0 && len(result.Symbols) == 0 && result.Answer == "" {
 		fmt.Println()
-		fmt.Println(StyleAskMeta.Render("  No results found. Try a different query or run 'taskwing bootstrap' to populate memory."))
+		fmt.Println(StyleAskMeta.Render("  No results found. Try a different query or run 'taskwing learn' to populate memory."))
 	}
 
 	fmt.Println()

@@ -19,7 +19,6 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/meguminnnnnnnnn/go-openai v0.1.1
-	github.com/modelcontextprotocol/go-sdk v0.2.0
 	github.com/open-policy-agent/opa v1.12.3
 	github.com/posthog/posthog-go v1.9.0
 	github.com/spf13/afero v1.15.0
@@ -29,8 +28,6 @@ require (
 	golang.org/x/text v0.32.0
 	golang.org/x/tools v0.39.0
 	google.golang.org/genai v1.36.0
-	google.golang.org/grpc v1.77.0
-	google.golang.org/protobuf v1.36.10
 	modernc.org/sqlite v1.40.1
 )
 
@@ -149,7 +146,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
@@ -166,6 +162,8 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
+	google.golang.org/grpc v1.77.0 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

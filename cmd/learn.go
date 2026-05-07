@@ -27,32 +27,34 @@ import (
 	"github.com/spf13/viper"
 )
 
-// bootstrapCmd represents the bootstrap command
-var bootstrapCmd = &cobra.Command{
-	Use:   "bootstrap",
-	Short: "Initialize project memory with LLM-powered analysis",
-	Long: `Initialize TaskWing for your repository.
+// learnCmd is the LLM-powered codebase analysis step.
+// It populates ~/.taskwing/projects/<slug>/memory.db with extracted decisions,
+// patterns, and constraints. Re-runnable: each run refreshes the knowledge.
+var learnCmd = &cobra.Command{
+	Use:   "learn",
+	Short: "Analyze the codebase and populate project memory (LLM)",
+	Long: `Analyze the current repository and extract architectural knowledge into
+~/.taskwing/projects/<slug>/memory.db.
 
-Bootstrap analyzes your codebase to extract architectural knowledge:
-  • Creates project store in ~/.taskwing/
-  • Sets up AI assistant integration (Claude, Cursor, etc.)
-  • Auto-repairs managed local AI config drift
+What it does:
   • Indexes code symbols (functions, types, etc.)
-  • Analyzes code patterns and architecture (requires API key)
-  • Extracts decisions and understands WHY choices were made
+  • Asks the LLM to extract decisions, patterns, and constraints with evidence
+  • Captures git history signal and documentation context
+  • Refreshes managed local AI integration files if they drifted
 
-Bootstrap does NOT adopt unmanaged AI config automatically and does NOT mutate
-global MCP in run mode. Use "taskwing doctor --fix" for explicit repair flows.
+This is the slow, LLM-heavy step. Run 'taskwing init' first to scaffold the
+project; run 'taskwing learn' whenever you want TaskWing to re-read the code.
 
-Requires an LLM API key (set via 'taskwing config set' or provider-specific env var).
+Requires an LLM API key (set via 'taskwing config set' or a provider env var
+such as OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, BEDROCK_API_KEY).
 
 Use --skip-analyze for CI/testing (deterministic, no LLM).`,
-	RunE: runBootstrap,
+	RunE: runLearn,
 }
 
-// runBootstrap is the main bootstrap command handler.
-// It follows a three-phase architecture: Probe → Plan → Execute
-func runBootstrap(cmd *cobra.Command, args []string) error {
+// runLearn is the main learn command handler.
+// It follows a three-phase architecture: Probe, Plan, Execute
+func runLearn(cmd *cobra.Command, args []string) error {
 	// ═══════════════════════════════════════════════════════════════════════
 	// PHASE 0: Parse and Validate Flags
 	// ═══════════════════════════════════════════════════════════════════════
@@ -94,6 +96,14 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
+	// Ensure the project marker file exists. The marker is the SSOT for project
+	// identity - its presence pins the slug and makes detection deterministic
+	// regardless of which subdirectory the user runs commands from. Auto-write
+	// here rather than fail so pre-marker users migrate transparently.
+	if err := ensureProjectMarker(cwd); err != nil && flags.Verbose {
+		fmt.Fprintf(os.Stderr, "warning: could not write project marker: %v\n", err)
+	}
+
 	// Debug mode: dump diagnostic info early
 	if flags.Debug {
 		fmt.Fprintln(os.Stderr, "")
@@ -133,17 +143,6 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 	// ═══════════════════════════════════════════════════════════════════════
 	// PHASE 1: Probe Environment (no side effects)
 	// ═══════════════════════════════════════════════════════════════════════
-	existingGlobalAIs := detectExistingMCPConfigs()
-	globalMCPSet := make(map[string]bool, len(existingGlobalAIs))
-	for _, ai := range existingGlobalAIs {
-		globalMCPSet[ai] = true
-	}
-	previousDetector := bootstrap.GlobalMCPDetector
-	bootstrap.GlobalMCPDetector = func(aiName string) bool {
-		return globalMCPSet[aiName]
-	}
-	defer func() { bootstrap.GlobalMCPDetector = previousDetector }()
-
 	snapshot, err := bootstrap.ProbeEnvironment(cwd)
 	if err != nil {
 		return fmt.Errorf("probe environment: %w", err)
@@ -223,22 +222,20 @@ func runBootstrap(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Final success message
+	// Final summary
 	if !flags.Quiet {
-		fmt.Println()
-		fmt.Println("✅ Bootstrap complete!")
-		printPostBootstrapSummary()
+		printPostLearnSummary()
 	}
 
 	return nil
 }
 
-// printPostBootstrapSummary shows a compact knowledge summary after bootstrap
-// so users immediately see what was extracted from their codebase.
-func printPostBootstrapSummary() {
+// printPostLearnSummary renders the final summary panel: aligned counts, a
+// bar chart, and the most useful follow-up commands.
+func printPostLearnSummary() {
 	repo, err := openRepo()
 	if err != nil {
-		return // non-fatal: skip summary if repo can't be opened
+		return
 	}
 	defer repo.Close()
 
@@ -247,7 +244,7 @@ func printPostBootstrapSummary() {
 		return
 	}
 
-	// Count by type using human-readable labels
+	// Count by type
 	byType := make(map[string]int)
 	for _, n := range nodes {
 		t := n.Type
@@ -257,29 +254,56 @@ func printPostBootstrapSummary() {
 		byType[t]++
 	}
 
-	// Build stats with spelled-out type names
-	var stats []string
 	typeLabels := map[string]string{
 		"decision": "decisions", "feature": "features", "constraint": "constraints",
 		"pattern": "patterns", "plan": "plans", "note": "notes",
 		"metadata": "metadata", "documentation": "docs",
 	}
+
+	type row struct {
+		label string
+		count int
+	}
+	var rows []row
+	maxCount := 0
 	for _, t := range memory.AllNodeTypes() {
-		if count := byType[t]; count > 0 {
-			label := typeLabels[t]
-			if label == "" {
-				label = t
-			}
-			if count == 1 {
-				// Singularize
-				label = strings.TrimSuffix(label, "s")
-			}
-			stats = append(stats, fmt.Sprintf("%d %s", count, label))
+		count := byType[t]
+		if count == 0 {
+			continue
+		}
+		label := typeLabels[t]
+		if label == "" {
+			label = t
+		}
+		rows = append(rows, row{label, count})
+		if count > maxCount {
+			maxCount = count
 		}
 	}
 
-	fmt.Printf("\n   Knowledge: %d nodes (%s)\n", len(nodes), strings.Join(stats, ", "))
-	fmt.Println("   Run 'taskwing knowledge' to explore, or use the ask MCP tool in your AI tool.")
+	ui.SectionHeader("Summary")
+	const labelWidth = 12
+	const barWidth = 16
+	dim := ui.StyleDim
+	for _, r := range rows {
+		bars := 0
+		if maxCount > 0 {
+			bars = (r.count * barWidth) / maxCount
+			if bars < 1 && r.count > 0 {
+				bars = 1
+			}
+		}
+		bar := strings.Repeat("█", bars)
+		fmt.Printf("    %-*s  %4d  %s\n", labelWidth, r.label, r.count, bar)
+	}
+	fmt.Printf("    %s  %s\n", strings.Repeat(" ", labelWidth), dim.Render("─────"))
+	fmt.Printf("    %-*s  %4d nodes\n", labelWidth, "total", len(nodes))
+
+	fmt.Println()
+	fmt.Printf("    %s\n", dim.Render("next:"))
+	fmt.Printf("      taskwing knowledge          %s\n", dim.Render("# browse"))
+	fmt.Printf("      taskwing ask \"<query>\"      %s\n", dim.Render("# search"))
+	fmt.Println()
 }
 
 // executeAction executes a single bootstrap action.
@@ -293,9 +317,6 @@ func executeAction(ctx context.Context, action bootstrap.Action, svc *bootstrap.
 
 	case bootstrap.ActionGenerateAIConfigs:
 		return executeGenerateAIConfigs(svc, flags, plan)
-
-	case bootstrap.ActionInstallMCP:
-		return executeInstallMCP(cwd, flags, plan)
 
 	case bootstrap.ActionIndexCode:
 		return executeIndexCode(ctx, cwd, flags)
@@ -380,11 +401,11 @@ func executeInitProject(svc *bootstrap.Service, flags bootstrap.Flags, plan *boo
 	plan.SelectedAIs = selectedAIs
 
 	// Initialize project
+	ui.SectionHeader("Project")
 	if err := svc.InitializeProject(flags.Verbose, selectedAIs); err != nil {
 		return fmt.Errorf("initialization failed: %w", err)
 	}
-
-	fmt.Println("✓ Project initialized")
+	ui.StatusLine(ui.IconOK, "project initialized")
 	return nil
 }
 
@@ -406,61 +427,17 @@ func executeGenerateAIConfigs(svc *bootstrap.Service, flags bootstrap.Flags, pla
 		return nil
 	}
 
-	// Generate configs (plan summary already showed which AIs are being updated)
+	// Generate configs
+	if !flags.Quiet {
+		ui.SectionHeader("AI integration")
+	}
 	if err := svc.RegenerateAIConfigs(flags.Verbose, targetAIs); err != nil {
 		return fmt.Errorf("regenerate AI configs failed: %w", err)
 	}
-
 	if !flags.Quiet {
-		fmt.Printf("✓ AI configurations updated: %s\n", strings.Join(targetAIs, ", "))
-	}
-	return nil
-}
-
-// executeInstallMCP registers MCP servers with AI CLIs.
-func executeInstallMCP(cwd string, flags bootstrap.Flags, plan *bootstrap.Plan) error {
-	// Determine which AIs need MCP registration
-	var targetAIs []string
-	if len(plan.SelectedAIs) > 0 {
-		targetAIs = plan.SelectedAIs
-	} else if len(plan.SuggestedAIs) > 0 {
-		targetAIs = plan.SuggestedAIs
-	}
-
-	if len(targetAIs) == 0 {
-		return nil
-	}
-
-	// Build set of AIs that already have global MCP configured
-	globalSet := make(map[string]bool)
-	existingGlobalAIs := detectExistingMCPConfigs()
-	for _, ai := range existingGlobalAIs {
-		globalSet[ai] = true
-	}
-
-	// Filter to only AIs that need registration
-	var aisNeedingRegistration []string
-	for _, ai := range targetAIs {
-		if !globalSet[ai] {
-			aisNeedingRegistration = append(aisNeedingRegistration, ai)
+		for _, ai := range targetAIs {
+			ui.StatusLine(ui.IconOK, fmt.Sprintf("%s regenerated", ai))
 		}
-	}
-
-	if len(aisNeedingRegistration) == 0 {
-		if !flags.Quiet && len(existingGlobalAIs) > 0 {
-			fmt.Printf("✓ MCP already configured globally for: %s\n", strings.Join(existingGlobalAIs, ", "))
-		}
-		return nil
-	}
-
-	if !flags.Quiet {
-		fmt.Printf("🔌 Installing MCP servers for: %s\n", strings.Join(aisNeedingRegistration, ", "))
-	}
-
-	installMCPServers(cwd, aisNeedingRegistration)
-
-	if !flags.Quiet {
-		fmt.Println("✓ MCP servers installed")
 	}
 	return nil
 }
@@ -524,21 +501,21 @@ func getStringFlag(cmd *cobra.Command, name string) string {
 }
 
 func init() {
-	rootCmd.AddCommand(bootstrapCmd)
-	bootstrapCmd.Flags().Bool("skip-init", false, "Skip initialization prompt")
-	bootstrapCmd.Flags().Bool("skip-index", false, "Skip code indexing (symbol extraction)")
-	bootstrapCmd.Flags().Bool("force", false, "Force indexing even for large codebases (>5000 files)")
-	bootstrapCmd.Flags().Bool("skip-analyze", false, "Skip LLM analysis (for CI/testing)")
-	bootstrapCmd.Flags().Bool("resume", false, "Resume from last checkpoint (skip completed agents)")
-	bootstrapCmd.Flags().StringSlice("only-agents", nil, "Run only specified agents (e.g., --only-agents=code,doc)")
-	bootstrapCmd.Flags().Bool("trace", false, "Emit JSON event stream to stderr")
-	bootstrapCmd.Flags().String("trace-file", "", "Write JSON event stream to file (default: ~/.taskwing/projects/<slug>/logs/bootstrap.trace.jsonl)")
-	bootstrapCmd.Flags().Bool("trace-stdout", false, "Emit JSON event stream to stderr (overrides trace file)")
-	bootstrapCmd.Flags().Bool("debug", false, "Enable debug logging (dumps project context, git paths, agent inputs)")
-	bootstrapCmd.Flags().Duration("timeout", 0, "LLM request timeout (e.g., 5m, 10m). Overrides TASKWING_LLM_TIMEOUT env var. Default: 5m")
+	rootCmd.AddCommand(learnCmd)
+	learnCmd.Flags().Bool("skip-init", false, "Skip initialization prompt")
+	learnCmd.Flags().Bool("skip-index", false, "Skip code indexing (symbol extraction)")
+	learnCmd.Flags().Bool("force", false, "Force indexing even for large codebases (>5000 files)")
+	learnCmd.Flags().Bool("skip-analyze", false, "Skip LLM analysis (for CI/testing)")
+	learnCmd.Flags().Bool("resume", false, "Resume from last checkpoint (skip completed agents)")
+	learnCmd.Flags().StringSlice("only-agents", nil, "Run only specified agents (e.g., --only-agents=code,doc)")
+	learnCmd.Flags().Bool("trace", false, "Emit JSON event stream to stderr")
+	learnCmd.Flags().String("trace-file", "", "Write JSON event stream to file (default: ~/.taskwing/projects/<slug>/logs/bootstrap.trace.jsonl)")
+	learnCmd.Flags().Bool("trace-stdout", false, "Emit JSON event stream to stderr (overrides trace file)")
+	learnCmd.Flags().Bool("debug", false, "Enable debug logging (dumps project context, git paths, agent inputs)")
+	learnCmd.Flags().Duration("timeout", 0, "LLM request timeout (e.g., 5m, 10m). Overrides TASKWING_LLM_TIMEOUT env var. Default: 5m")
 
 	// Hide internal flags from main help (documented in CLAUDE.md / finetune docs)
-	_ = bootstrapCmd.Flags().MarkHidden("skip-analyze")
+	_ = learnCmd.Flags().MarkHidden("skip-analyze")
 }
 
 // runAgentTUI handles the interactive UI part, delegating work to the service
@@ -546,7 +523,7 @@ func init() {
 // Batchable agents have their prompts collected and submitted as a single batch.
 func runAgentTUI(ctx context.Context, svc *bootstrap.Service, cwd string, llmCfg llm.Config, flags bootstrap.Flags) error {
 	fmt.Println("")
-	ui.RenderPageHeader("TaskWing Bootstrap", fmt.Sprintf("Using: %s (%s)", llmCfg.Model, llmCfg.Provider))
+	ui.RenderPageHeader("TaskWing Learn", fmt.Sprintf("Using: %s (%s)", llmCfg.Model, llmCfg.Provider))
 
 	projectName := filepath.Base(cwd)
 	allAgents := bootstrap.NewDefaultAgents(llmCfg, cwd, nil)
@@ -573,7 +550,7 @@ func runAgentTUI(ctx context.Context, svc *bootstrap.Service, cwd string, llmCfg
 	// If all agents were skipped, nothing to do
 	if len(agentsList) == 0 {
 		if !flags.Quiet {
-			fmt.Println("✅ All agents already completed. Use 'bootstrap' without --resume to re-run.")
+			fmt.Println("✅ All agents already completed. Use 'learn' without --resume to re-run.")
 		}
 		return nil
 	}
@@ -606,7 +583,7 @@ func runAgentTUI(ctx context.Context, svc *bootstrap.Service, cwd string, llmCfg
 
 	bootstrapModel, ok := finalModel.(ui.BootstrapModel)
 	if !ok || (bootstrapModel.Quitting && len(bootstrapModel.Results) < len(agentsList)) {
-		fmt.Println("\n⚠️  Bootstrap cancelled.")
+		fmt.Println("\n⚠️  Learn cancelled.")
 		return nil
 	}
 
@@ -701,30 +678,54 @@ func updateAgentCheckpoints(agents []*ui.AgentState, store *memory.SQLiteStore) 
 	}
 }
 
-// runMultiRepoBootstrap uses the service to analyze multiple repos
+// runMultiRepoBootstrap uses the service to analyze multiple repos.
+//
+// Output shape: a single "LLM analysis" section header followed by per-service
+// status lines, then a service-error block (if any) and a preview/ingestion
+// summary. The final summary panel is rendered by runLearn.
 func runMultiRepoBootstrap(ctx context.Context, svc *bootstrap.Service, ws *project.WorkspaceInfo, preview bool) error {
-	fmt.Println("")
-	ui.RenderPageHeader("TaskWing Multi-Repo Bootstrap", fmt.Sprintf("Workspace: %s | Services: %d", ws.Name, ws.ServiceCount()))
+	ui.SectionHeader("LLM analysis")
+	ui.StatusLine(ui.IconNeutral, fmt.Sprintf("workspace: %s, %d services", ws.Name, ws.ServiceCount()))
 
-	fmt.Printf("📦 Analyzing %d services...\n", ws.ServiceCount())
+	// Pad service names so per-service progress lines align cleanly.
+	maxNameLen := 0
+	for _, name := range ws.Services {
+		if n := lenServiceName(name); n > maxNameLen {
+			maxNameLen = n
+		}
+	}
 
 	findings, relationships, errs, err := svc.RunMultiRepoAnalysis(ctx, ws, func(name, status string) {
-		fmt.Printf("  %s: %s\n", name, status)
+		// Map raw service status strings to icons + concise text.
+		// Common status strings: "analyzing...", "done (N findings)", "no changes", "error: ..."
+		icon := ui.IconWait
+		text := status
+		switch {
+		case strings.HasPrefix(status, "done"):
+			icon = ui.IconOK
+		case strings.HasPrefix(status, "no changes"):
+			icon = ui.IconNeutral
+		case strings.HasPrefix(status, "error"):
+			icon = ui.IconFail
+		case strings.HasPrefix(status, "analyzing"):
+			// Suppress the "analyzing..." progress chatter; we'll print one line per service when done.
+			return
+		}
+		fmt.Printf("    %s  %-*s  %s\n", icon, maxNameLen, name, text)
 	})
 	if err != nil {
 		return err
 	}
 
 	if len(errs) > 0 {
-		fmt.Println("\n⚠️  Some services had errors:")
 		for _, e := range errs {
-			fmt.Printf("   - %s\n", e)
+			ui.StatusLine(ui.IconWarn, e)
 		}
 	}
 
 	if preview {
-		fmt.Printf("\n📊 Preview: %d findings from %d services\n", len(findings), ws.ServiceCount()-len(errs))
-		fmt.Println("💡 This was a preview. Run 'taskwing bootstrap' to save to memory.")
+		ui.StatusLine(ui.IconNeutral, fmt.Sprintf("preview: %d findings from %d services", len(findings), ws.ServiceCount()-len(errs)))
+		ui.StatusLine(ui.IconNeutral, "preview only — run `taskwing learn` to save to memory")
 		return nil
 	}
 
@@ -732,53 +733,26 @@ func runMultiRepoBootstrap(ctx context.Context, svc *bootstrap.Service, ws *proj
 		return err
 	}
 
-	// Don't print completion here -- runBootstrap prints it after all actions finish.
 	return nil
 }
+
+// lenServiceName returns the visible length of a service name. Wrapped so we
+// can swap to a width-aware length later if names contain non-ASCII characters.
+func lenServiceName(s string) int { return len(s) }
 
 // promptRepoSelection prompts the user to select which repositories to bootstrap.
 // Returns all repos on error or cancel to avoid silent no-op.
 func promptRepoSelection(repos []string) []string {
 	selected, err := ui.PromptRepoSelection(repos)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Repo selection failed: %v — analyzing all repositories\n", err)
+		fmt.Fprintf(os.Stderr, "⚠️  Repo selection failed: %v - analyzing all repositories\n", err)
 		return repos
 	}
 	if selected == nil {
-		fmt.Println("⚠️  Selection cancelled — analyzing all repositories")
+		fmt.Println("⚠️  Selection cancelled - analyzing all repositories")
 		return repos
 	}
 	return selected
-}
-
-// installMCPServers handles the binary installation calls (kept in CLI layer)
-func installMCPServers(basePath string, selectedAIs []string) {
-	binPath, _ := os.Executable()
-	if absPath, err := filepath.Abs(binPath); err == nil {
-		binPath = filepath.Clean(absPath)
-	}
-	for _, ai := range selectedAIs {
-		switch ai {
-		case "claude":
-			installClaude(binPath, basePath)
-		case "gemini":
-			if err := installGeminiCLI(binPath, basePath); err != nil {
-				fmt.Printf("⚠️  Gemini MCP install failed: %v\n", err)
-			}
-		case "codex":
-			installCodexGlobal(binPath, basePath)
-		case "cursor":
-			installLocalMCP(basePath, ".cursor", "mcp.json", binPath)
-		case "copilot":
-			installCopilot(binPath, basePath)
-		case "opencode":
-			// OpenCode: creates opencode.json at project root
-			// During development, use taskwing-local-dev-mcp for testing changes
-			if err := installOpenCode(binPath, basePath); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️  OpenCode MCP installation failed: %v\n", err)
-			}
-		}
-	}
 }
 
 // setupTrace configures trace logging and returns a cleanup function.
@@ -856,7 +830,7 @@ func checkAgentFailures(agents []*ui.AgentState) error {
 }
 
 // runCodeIndexing runs the code intelligence indexer on the codebase.
-// This extracts symbols (functions, types, etc.) for enhanced search and MCP ask.
+// This extracts symbols (functions, types, etc.) for enhanced search and `taskwing ask`.
 func runCodeIndexing(ctx context.Context, basePath string, forceIndex, isQuiet bool) error {
 	// Open repository to get database handle
 	repo, err := openRepo()
@@ -901,17 +875,14 @@ func runCodeIndexing(ctx context.Context, basePath string, forceIndex, isQuiet b
 
 	// Print header
 	if !isQuiet {
-		fmt.Println()
-		fmt.Println("📇 Code Intelligence Indexing")
-		fmt.Println("────────────────────────────")
-		fmt.Printf("   🔍 Scanning %d source files...\n", fileCount)
+		ui.SectionHeader("Code index")
+		ui.StatusLineRight(ui.IconWait, fmt.Sprintf("scanning %d source files", fileCount), "")
 	}
 
 	// Configure progress callback with more detail
 	var lastUpdate time.Time
 	if !isQuiet {
 		config.OnProgress = func(stats codeintel.IndexStats) {
-			// Throttle updates to avoid flickering
 			if time.Since(lastUpdate) < 100*time.Millisecond {
 				return
 			}
@@ -920,7 +891,7 @@ func runCodeIndexing(ctx context.Context, basePath string, forceIndex, isQuiet b
 			if stats.FilesScanned > 0 {
 				pct = (stats.FilesIndexed * 100) / stats.FilesScanned
 			}
-			fmt.Fprintf(os.Stderr, "\r   ⚡ Progress: %d%% (%d files, %d symbols)    ", pct, stats.FilesIndexed, stats.SymbolsFound)
+			fmt.Fprintf(os.Stderr, "\r    %s  %d%%  (%d files, %d symbols)    ", ui.IconWait, pct, stats.FilesIndexed, stats.SymbolsFound)
 		}
 	}
 
@@ -933,30 +904,31 @@ func runCodeIndexing(ctx context.Context, basePath string, forceIndex, isQuiet b
 	// Prune stale files first
 	prunedCount, err := indexer.PruneStaleFiles(ctx)
 	if err != nil && !isQuiet {
-		fmt.Fprintf(os.Stderr, "   ⚠️  Prune failed: %v\n", err)
+		ui.StatusLine(ui.IconWarn, fmt.Sprintf("prune failed: %v", err))
 	}
 
 	// Run incremental indexing
 	stats, err := indexer.IncrementalIndex(ctx, basePath)
 	if err != nil {
 		if !isQuiet {
-			fmt.Fprintf(os.Stderr, "\r                                                        \n")
-			fmt.Fprintf(os.Stderr, "   ⚠️  Indexing failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "\r%s\n", strings.Repeat(" ", 60))
+			ui.StatusLine(ui.IconWarn, fmt.Sprintf("indexing failed: %v", err))
 		}
-		return nil // Non-fatal - bootstrap succeeded even if indexing fails
+		return nil // Non-fatal - learn succeeded even if indexing fails
 	}
 
 	// Clear progress line and print summary
 	if !isQuiet {
-		fmt.Fprintf(os.Stderr, "\r                                                        \n")
-		duration := time.Since(start)
-		fmt.Printf("   ✅ Indexed %d updates, pruned %d files in %v\n",
-			stats.FilesIndexed, prunedCount, duration.Round(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", 60))
+		duration := time.Since(start).Round(time.Millisecond)
+		ui.StatusLineRight(ui.IconOK,
+			fmt.Sprintf("%d files indexed (%d pruned)", stats.FilesIndexed, prunedCount),
+			duration.String())
 		if stats.RelationsFound > 0 {
-			fmt.Printf("   🔗 Discovered %d call relationships\n", stats.RelationsFound)
+			ui.StatusLine(ui.IconOK, fmt.Sprintf("%d call relationships", stats.RelationsFound))
 		}
 		if len(stats.Errors) > 0 {
-			fmt.Printf("   ⚠️  %d files skipped (parse errors)\n", len(stats.Errors))
+			ui.StatusLine(ui.IconWarn, fmt.Sprintf("%d files skipped (parse errors)", len(stats.Errors)))
 		}
 	}
 

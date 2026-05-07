@@ -428,8 +428,3 @@ func (a *CodeAgent) parseFindings(parsed codeAnalysisResponse) ([]core.Finding, 
 	return findings, relationships
 }
 
-func init() {
-	core.RegisterAgent("code", func(cfg llm.Config, basePath string) core.Agent {
-		return NewCodeAgent(cfg, basePath)
-	}, "Code Analysis", "Analyzes source code structure, patterns, and architecture")
-}

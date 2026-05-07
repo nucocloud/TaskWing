@@ -470,8 +470,3 @@ func gatherProjectMeta(basePath string, allCommits []string, projectCtx *project
 	return sb.String()
 }
 
-func init() {
-	core.RegisterAgent("git", func(cfg llm.Config, basePath string) core.Agent {
-		return NewGitAgent(cfg)
-	}, "Git History", "Extracts decisions and patterns from git commit history")
-}

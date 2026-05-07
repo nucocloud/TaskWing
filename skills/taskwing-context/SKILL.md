@@ -20,7 +20,7 @@ Load the project knowledge base into this conversation for architectural context
 |---------|------------|
 | Summarize or paraphrase the results | Show everything verbatim so the user can verify |
 | Filter out "less important" knowledge | Present all nodes. You do not decide relevance for the user. |
-| Modify the knowledge base | This is strictly read-only. Use `remember` MCP tool to persist changes. |
+| Modify the knowledge base | This is strictly read-only. Use the appropriate `taskwing` write commands to persist changes. |
 | Use this to bypass plan/verification gates | Context priming is not a substitute for workflow checkpoints |
 
 ## Operating Principles
@@ -31,30 +31,35 @@ Load the project knowledge base into this conversation for architectural context
 
 ## Steps
 
-1. Call MCP tool `ask` with `all=true` to get a compact knowledge summary (titles + one-liners, grouped by type):
-```json
-{"all": true}
+1. Run the CLI to dump all knowledge as JSON:
+
+```bash
+taskwing knowledge --json
 ```
 
 2. Present the returned knowledge verbatim. The response is organized by type (constraints, decisions, patterns, features).
 
 3. After presenting, confirm: "Project context loaded. I now have full visibility into your architecture. What would you like to work on?"
 
-## Full Detail Mode
+## Filtered Lookups
 
-If you need the complete knowledge dump with snippets and evidence (for deep investigation), use paginated full detail:
-```json
-{"all": true, "detail": "full", "page": 1}
+For a single type:
+
+```bash
+taskwing knowledge constraint --json
+taskwing knowledge decision --json
+taskwing knowledge pattern --json
 ```
-Continue with `page=2`, `page=3`, etc. until all pages are retrieved.
 
-For scoped full detail on a specific topic:
-```json
-{"query": "auth", "detail": "full"}
+For a focused semantic query rather than a full dump:
+
+```bash
+taskwing ask "auth patterns" --json
+taskwing ask "vectorsearch decisions" --limit 10 --json
 ```
 
 ## Important
 
 - This is a READ-ONLY operation. It does not modify the knowledge base.
-- If the knowledge base is empty, tell the user to run `taskwing bootstrap` first.
+- If `taskwing knowledge --json` returns an empty array, tell the user to run `taskwing bootstrap` first.
 - Do NOT summarize or filter the results. Show everything so the user can verify.

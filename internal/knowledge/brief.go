@@ -25,7 +25,7 @@ func GenerateCompactBrief(repo *memory.Repository) (string, error) {
 	}
 
 	if len(nodes) == 0 {
-		return "No project memory found. Run `taskwing bootstrap`.", nil
+		return "No project memory found. Run `taskwing learn`.", nil
 	}
 
 	return FormatNodesAsCompactBrief(nodes), nil

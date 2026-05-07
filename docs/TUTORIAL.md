@@ -31,7 +31,7 @@ Brand names and logos are trademarks of their respective owners; usage here indi
 
 ```bash
 cd your-project
-taskwing bootstrap
+taskwing learn
 ```
 
 This creates `.taskwing/` and installs AI assistant integration files.
@@ -120,7 +120,7 @@ taskwing doctor --fix --adopt-unmanaged --yes --ai claude
 
 Bootstrap behavior during drift:
 
-- Managed local drift: `taskwing bootstrap` auto-repairs.
+- Managed local drift: `taskwing learn` auto-repairs.
 - Unmanaged drift: bootstrap warns and points to `doctor --fix --adopt-unmanaged`.
 - Global MCP drift: bootstrap warns and points to `doctor --fix`.
 
@@ -154,7 +154,7 @@ Recommended Bedrock model IDs:
 ## Core Commands
 
 <!-- TASKWING_COMMANDS_START -->
-- `taskwing bootstrap`
+- `taskwing learn`
 - `taskwing ask "<query>"`
 - `taskwing task`
 - `taskwing mcp`

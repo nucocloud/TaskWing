@@ -365,8 +365,3 @@ func filterMarkdown(files []string) []string {
 	return filtered
 }
 
-func init() {
-	core.RegisterAgent("doc", func(cfg llm.Config, basePath string) core.Agent {
-		return NewDocAgent(cfg)
-	}, "Documentation", "Extracts knowledge from README and documentation files")
-}

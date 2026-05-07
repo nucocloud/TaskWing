@@ -43,7 +43,7 @@ var memoryExportTrainingCmd = &cobra.Command{
 compatible with the finetune/karluk/ pipeline.
 
 Only nodes with structured content (from bootstrap) are included.
-Plain-text nodes (from remember/MCP) are skipped.
+Plain-text knowledge entries are skipped.
 
 Examples:
   taskwing memory export-training --output training.jsonl
@@ -115,7 +115,7 @@ func runExportTraining(cmd *cobra.Command, args []string) (err error) {
 }
 
 func buildTrainingExample(n memory.Node, sc *memory.StructuredContent) trainingExample {
-	// Build user message from evidence snippets (the "input" — raw source content)
+	// Build user message from evidence snippets (the "input" - raw source content)
 	var userContent strings.Builder
 	userContent.WriteString("Classify the following content from a go codebase.\n\n")
 	userContent.WriteString("Content type: code_snippet\n")
@@ -147,7 +147,7 @@ func buildTrainingExample(n memory.Node, sc *memory.StructuredContent) trainingE
 	userContent.WriteString("\n")
 	userContent.WriteString(`{"type": "<decision|feature|pattern|constraint>", "confidence": <0.0-1.0>, "one_liner": "<concise summary>", "reasoning": "<why this classification>"}`)
 
-	// Build assistant response (the "output" — the classification result)
+	// Build assistant response (the "output" - the classification result)
 	reasoning := sc.Description
 	if sc.Why != "" {
 		reasoning += " " + sc.Why

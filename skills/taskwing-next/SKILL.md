@@ -17,58 +17,66 @@ The Workflow Contract lives in CLAUDE.md (single source of truth). Obey it alway
 
 ## Operating Principles
 
-1. **Context before code.** Always call `ask` for both scope and task-specific context before presenting the brief.
+1. **Context before code.** Always run `taskwing ask` for both scope and task-specific context before presenting the brief.
 2. **The brief is the contract.** The task brief (Step 5) defines what you will build. Do not deviate without re-checking.
 3. **Patterns are binding.** If `ask` returns patterns for the task scope, follow them. If constraints exist, respect them.
 
 Execute these steps IN ORDER. Do not skip any step.
 
 ## Step 1: Get Next Task
-Call MCP tool `task` with action `next` to retrieve the highest-priority pending task:
-```json
-{"action": "next"}
+
+Run:
+
+```bash
+taskwing task next --json
 ```
 
-`session_id` is optional when called through MCP transport; include it only for explicit cross-session orchestration.
-
-Extract from the response:
+Extract from the JSON response:
 - task_id, title, description
 - scope (e.g., "auth", "vectorsearch", "api")
 - keywords array
 - acceptance_criteria
-- suggested_ask_queries
+- suggested_ask_queries (if present)
 
-If no task returned, inform user: "No pending tasks. Use /taskwing:context to check plan status."
+If the command reports no pending task, inform the user: "No pending tasks. Use /taskwing:context to check plan status."
 
 ## Step 2: Fetch Scope-Relevant Context
-Call MCP tool `ask` with query based on task scope:
-```json
-{"query": "[task.scope] patterns constraints decisions"}
+
+Run `taskwing ask` with a query based on the task scope:
+
+```bash
+taskwing ask "<task.scope> patterns constraints decisions" --json
 ```
 
 Examples:
-- scope "auth" -> `{"query": "authentication cookies session patterns"}`
-- scope "api" -> `{"query": "api handlers middleware patterns"}`
-- scope "vectorsearch" -> `{"query": "lancedb embedding vector patterns"}`
+- scope "auth" → `taskwing ask "authentication cookies session patterns" --json`
+- scope "api" → `taskwing ask "api handlers middleware patterns" --json`
+- scope "vectorsearch" → `taskwing ask "lancedb embedding vector patterns" --json`
 
 Extract: patterns, constraints, related decisions.
 
 ## Step 3: Fetch Task-Specific Context
-Call MCP tool `ask` with keywords from the task.
-Use `suggested_ask_queries` if available, otherwise extract keywords from title.
-```json
-{"query": "[keywords from task title/description]"}
+
+Run `taskwing ask` with keywords from the task. Use `suggested_ask_queries` if available, otherwise extract keywords from the title.
+
+```bash
+taskwing ask "<keywords from task title/description>" --json
 ```
 
 ## Step 4: Claim the Task
-Call MCP tool `task` with action `start`:
-```json
-{"action": "start", "task_id": "[task_id from step 1]"}
+
+Run:
+
+```bash
+taskwing task start <task_id>
 ```
+
+(`<task_id>` is the value from Step 1.)
 
 ## Step 5: Present Unified Task Brief
 
 Display in this format:
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TASK: [task_id] (Priority: [priority])
@@ -106,6 +114,7 @@ Task claimed. Ready to begin.
 ```
 
 ## Step 6: Implementation Start Gate (Hard Gate)
+
 Before writing or editing code, ask for an explicit checkpoint:
 "Implementation checkpoint: proceed with task [task_id] now?"
 
@@ -113,13 +122,17 @@ If approval is missing or unclear, STOP and respond with:
 "REFUSAL: I can't start implementation yet. Plan/task checkpoint is incomplete. Please approve this task checkpoint first."
 
 ## Step 7: Begin Implementation (Only After Approval)
+
 Proceed with the task, following the patterns and respecting the constraints shown above.
 
-**CRITICAL**: You MUST call all MCP tools (`task(next)`, `ask` x2, `task(start)`) before showing the brief and before requesting implementation approval.
+**CRITICAL**: You MUST run all four CLI commands (`task next`, `ask` x2, `task start`) before showing the brief and before requesting implementation approval.
 
-## Fallback (No MCP)
+## Useful Variants
+
 ```bash
-taskwing task list                    # List all tasks
-taskwing task list --status pending   # Identify next pending task
+taskwing task list --json                    # see all tasks
+taskwing task list --status pending --json   # identify next pending task
+taskwing task next --auto-start --json       # claim immediately, single call
 ```
-Use /taskwing:context to check active plan progress.
+
+Use `/taskwing:context` to check active plan progress.

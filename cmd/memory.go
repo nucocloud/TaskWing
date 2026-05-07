@@ -208,12 +208,12 @@ Checks for:
 					}
 					fmt.Printf("     %s\n", f)
 				}
-				fmt.Println("   Run 'taskwing bootstrap --force' to re-index the codebase.")
+				fmt.Println("   Run 'taskwing learn --force' to re-index the codebase.")
 				fmt.Println()
 			}
 		} else if symbolStats != nil {
 			fmt.Println("💻 Code Symbol Index: (empty)")
-			fmt.Println("   Run 'taskwing bootstrap' to index your codebase.")
+			fmt.Println("   Run 'taskwing learn' to index your codebase.")
 			fmt.Println()
 		}
 

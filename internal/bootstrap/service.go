@@ -77,11 +77,11 @@ func (s *Service) RunMultiRepoAnalysis(ctx context.Context, ws *project.Workspac
 	// Save the workspace-level project context to restore after each service
 	workspaceCtx := config.GetProjectContext()
 
-	for i, serviceName := range ws.Services {
+	for _, serviceName := range ws.Services {
 		servicePath := ws.GetServicePath(serviceName)
 
 		if onProgress != nil {
-			onProgress(serviceName, fmt.Sprintf("[%d/%d] analyzing...", i+1, len(ws.Services)))
+			onProgress(serviceName, "analyzing")
 		}
 
 		// Set per-service project context so git agents get the correct scopePath
@@ -100,7 +100,7 @@ func (s *Service) RunMultiRepoAnalysis(ctx context.Context, ws *project.Workspac
 				headSHA := getGitHEAD(servicePath)
 				if headSHA != "" && headSHA == state.Checksum {
 					if onProgress != nil {
-						onProgress(serviceName, fmt.Sprintf("[%d/%d] no changes", i+1, len(ws.Services)))
+						onProgress(serviceName, "no changes")
 					}
 					_ = store.Close()
 					runner.Close()
@@ -110,7 +110,7 @@ func (s *Service) RunMultiRepoAnalysis(ctx context.Context, ws *project.Workspac
 					changedFiles := getChangedFilesSince(servicePath, state.Checksum)
 					if changedFiles != nil && len(changedFiles) == 0 {
 						if onProgress != nil {
-							onProgress(serviceName, fmt.Sprintf("[%d/%d] no changes", i+1, len(ws.Services)))
+							onProgress(serviceName, "no changes")
 						}
 						_ = store.Close()
 						runner.Close()
@@ -191,7 +191,7 @@ func (s *Service) RunMultiRepoAnalysis(ctx context.Context, ws *project.Workspac
 		}
 
 		if onProgress != nil {
-			onProgress(serviceName, fmt.Sprintf("[%d/%d] done (%d findings)", i+1, len(ws.Services), len(findings)))
+			onProgress(serviceName, fmt.Sprintf("done · %d findings", len(findings)))
 		}
 	}
 
@@ -260,10 +260,9 @@ func (s *Service) ingestToMemory(ctx context.Context, findings []core.Finding, r
 	// Generate ARCHITECTURE.md
 	projectName := filepath.Base(s.basePath)
 	if err := repo.GenerateArchitectureMD(projectName); err != nil {
-		// Log warning but don't fail bootstrap
 		fmt.Fprintf(os.Stderr, "⚠️  Failed to generate ARCHITECTURE.md: %v\n", err)
 	} else if !isQuiet {
-		fmt.Println("   ✓ Generated ARCHITECTURE.md")
+		ui.StatusLine(ui.IconOK, "ARCHITECTURE.md generated")
 	}
 
 	return nil
@@ -277,13 +276,9 @@ func (s *Service) generateOverviewIfNeeded(ctx context.Context, repo *memory.Rep
 	}
 	if existing != nil {
 		if verbose {
-			fmt.Println("\n📋 Project overview already exists (re-run bootstrap with --force to refresh)")
+			ui.StatusLine(ui.IconSkip, "project overview already exists (re-run with --force to refresh)")
 		}
 		return nil
-	}
-
-	if verbose {
-		fmt.Println("\n📋 Generating project overview...")
 	}
 
 	analyzer := NewOverviewAnalyzer(s.llmCfg, s.basePath)
@@ -297,8 +292,7 @@ func (s *Service) generateOverviewIfNeeded(ctx context.Context, repo *memory.Rep
 	}
 
 	if verbose {
-		fmt.Println("   ✓ Project overview generated")
-		fmt.Printf("   \"%s\"\n", overview.ShortDescription)
+		ui.StatusLine(ui.IconOK, fmt.Sprintf("project overview: %q", overview.ShortDescription))
 	}
 	return nil
 }
@@ -326,35 +320,28 @@ func (s *Service) RunDeterministicBootstrap(ctx context.Context, isQuiet bool) (
 	defer func() { _ = repo.Close() }()
 
 	if !isQuiet {
-		fmt.Println()
-		fmt.Println("📊 Extracting Project Metadata")
-		fmt.Println("──────────────────────────────")
+		ui.SectionHeader("Metadata")
 	}
 
 	var findings []core.Finding
 	startTime := time.Now()
 
 	// 1. Extract Git Statistics (deterministic)
-	if !isQuiet {
-		fmt.Print("   📈 Analyzing git history...")
-	}
 	gitParser := NewGitStatParser(s.basePath)
 	gitStats, err := gitParser.Parse()
 	if err != nil {
-		// Track warning instead of silently swallowing
 		result.Warnings = append(result.Warnings, fmt.Sprintf("git stats: %v", err))
 		if !isQuiet {
 			if strings.Contains(err.Error(), "not a git repository") {
-				fmt.Println(" skipped (not a git repository)")
+				ui.StatusLine(ui.IconSkip, "git history skipped (not a git repository)")
 			} else {
-				fmt.Printf(" skipped (%v)\n", err)
+				ui.StatusLine(ui.IconSkip, fmt.Sprintf("git history skipped (%v)", err))
 			}
 		}
 	} else {
 		if !isQuiet {
-			fmt.Printf(" %d commits, %d contributors\n", gitStats.TotalCommits, len(gitStats.Contributors))
+			ui.StatusLine(ui.IconOK, fmt.Sprintf("git history: %d commits, %d contributors", gitStats.TotalCommits, len(gitStats.Contributors)))
 		}
-		// Convert to finding for storage (deterministic bootstrap data)
 		findings = append(findings, core.Finding{
 			Type:        memory.NodeTypeMetadata,
 			Title:       "Git Repository Statistics",
@@ -369,10 +356,6 @@ func (s *Service) RunDeterministicBootstrap(ctx context.Context, isQuiet bool) (
 	}
 
 	// 2. Load Documentation Files (deterministic)
-	// For multi-repo workspaces, also scan sub-repo directories
-	if !isQuiet {
-		fmt.Print("   📄 Loading documentation...")
-	}
 	docLoader := NewDocLoader(s.basePath)
 	ws, wsErr := project.DetectWorkspace(s.basePath)
 	var docs []DocFile
@@ -382,27 +365,25 @@ func (s *Service) RunDeterministicBootstrap(ctx context.Context, isQuiet bool) (
 		docs, err = docLoader.Load()
 	}
 	if err != nil {
-		// Track warning instead of silently swallowing
 		result.Warnings = append(result.Warnings, fmt.Sprintf("doc loader: %v", err))
 		if !isQuiet {
-			fmt.Printf(" failed (%v)\n", err)
+			ui.StatusLine(ui.IconWarn, fmt.Sprintf("documentation failed (%v)", err))
 		}
 	} else {
 		if !isQuiet {
-			// Show category breakdown for better visibility
 			categories := make(map[string]int)
 			for _, doc := range docs {
 				categories[doc.Category]++
 			}
-			fmt.Printf(" %d files", len(docs))
+			text := fmt.Sprintf("%d documents loaded", len(docs))
 			if len(categories) > 0 {
 				var parts []string
 				for cat, count := range categories {
 					parts = append(parts, fmt.Sprintf("%d %s", count, cat))
 				}
-				fmt.Printf(" (%s)", joinMax(parts, 3))
+				text = fmt.Sprintf("%d documents loaded (%s)", len(docs), joinMax(parts, 3))
 			}
-			fmt.Println()
+			ui.StatusLine(ui.IconOK, text)
 		}
 		// Convert each doc to a finding for storage and RAG retrieval
 		for _, doc := range docs {
@@ -422,7 +403,7 @@ func (s *Service) RunDeterministicBootstrap(ctx context.Context, isQuiet bool) (
 
 	if len(findings) == 0 {
 		if !isQuiet {
-			fmt.Println("   ⚠️  No metadata extracted (not a git repo or no docs)")
+			ui.StatusLine(ui.IconWarn, "no metadata extracted (not a git repo or no docs)")
 		}
 		result.Warnings = append(result.Warnings, "no metadata extracted (not a git repo or no docs)")
 		return result, nil
@@ -432,21 +413,16 @@ func (s *Service) RunDeterministicBootstrap(ctx context.Context, isQuiet bool) (
 	ks := knowledge.NewService(repo, s.llmCfg)
 	ks.SetBasePath(s.basePath)
 
-	if !isQuiet {
-		fmt.Print("   💾 Storing to memory...")
-	}
-
 	if err := ks.IngestFindings(ctx, findings, nil, false); err != nil {
 		if !isQuiet {
-			fmt.Println(" failed")
+			ui.StatusLine(ui.IconFail, "store to memory failed")
 		}
 		return nil, fmt.Errorf("ingest metadata: %w", err)
 	}
 
 	elapsed := time.Since(startTime).Round(time.Millisecond)
 	if !isQuiet {
-		fmt.Printf(" done (%v)\n", elapsed)
-		fmt.Printf("\n   ✅ Extracted %d items in %v\n", len(findings), elapsed)
+		ui.StatusLineRight(ui.IconOK, fmt.Sprintf("%d items stored in memory", len(findings)), elapsed.String())
 	}
 
 	result.FindingsCount = len(findings)

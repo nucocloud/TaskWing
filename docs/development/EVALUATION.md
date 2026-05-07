@@ -81,16 +81,16 @@ via the MCP protocol:
 ```
 Decisions:  22 (e.g., "PostgreSQL over MongoDB", "OpenAPI codegen")
 Patterns:   12 (e.g., "internal/api/handlers/ convention")
-Constraints: 9 (e.g., "No .env in production — use SSM")
+Constraints: 9 (e.g., "No .env in production - use SSM")
 ```
 
-This context was extracted automatically by `taskwing bootstrap`
+This context was extracted automatically by `taskwing learn`
 in under 3 seconds.
 
 ## Reproducing
 
 1. Clone any Go or multi-language repository
-2. Run `taskwing bootstrap` to extract context
+2. Run `taskwing learn` to extract context
 3. Ask the same architectural questions with and without
    TaskWing's MCP server connected
 4. Score responses on a 1–10 scale using the criteria above
@@ -100,7 +100,7 @@ in under 3 seconds.
 - Single codebase evaluated (Go/React monorepo)
 - Single LLM judge model (gpt-5-mini)
 - 5 tasks may not capture all architectural reasoning scenarios
-- Scores are relative — absolute quality depends on the model used
+- Scores are relative - absolute quality depends on the model used
 
 We plan to expand this evaluation to more codebases and models
 in future iterations.

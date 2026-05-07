@@ -16,7 +16,6 @@ import (
 	"github.com/josephgoksu/TaskWing/internal/knowledge"
 	"github.com/josephgoksu/TaskWing/internal/llm"
 	"github.com/josephgoksu/TaskWing/internal/memory"
-	"github.com/josephgoksu/TaskWing/internal/project"
 )
 
 // SymbolResponse represents a code symbol in search results.
@@ -97,34 +96,7 @@ func ValidateWorkspace(workspace string) error {
 	return nil
 }
 
-// AutoDetectWorkspace returns the workspace name detected from the current working directory.
-// Returns "root" if not in a monorepo subdirectory or if detection fails.
-func AutoDetectWorkspace() string {
-	ws, _ := project.DetectWorkspaceFromCwd()
-	return ws
-}
-
-// ResolveWorkspace resolves the effective workspace to use.
-// If explicitWorkspace is non-empty, it is validated and returned.
-// If explicitWorkspace is empty and autoDetect is true, it auto-detects from cwd.
-// Returns the resolved workspace or "root" as default.
-func ResolveWorkspace(explicitWorkspace string, autoDetect bool) (string, error) {
-	if explicitWorkspace != "" {
-		if err := ValidateWorkspace(explicitWorkspace); err != nil {
-			return "", err
-		}
-		return explicitWorkspace, nil
-	}
-
-	if autoDetect {
-		return AutoDetectWorkspace(), nil
-	}
-
-	return "", nil // Empty means all workspaces
-}
-
 // AskApp provides knowledge retrieval operations.
-// This is THE implementation - CLI and MCP both call these methods.
 type AskApp struct {
 	ctx *Context
 }
@@ -383,17 +355,6 @@ func (a *AskApp) searchSymbols(ctx context.Context, query string, limit int) []S
 	}
 
 	return responses
-}
-
-// Summary returns a high-level overview of the project's knowledge base.
-// Use this when no query is provided.
-func (a *AskApp) Summary(ctx context.Context) (*knowledge.ProjectSummary, error) {
-	ks := knowledge.NewService(a.ctx.Repo, a.ctx.LLMCfg)
-	summary, err := ks.GetProjectSummary(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get project summary: %w", err)
-	}
-	return &summary, nil
 }
 
 // getRawSymbols retrieves raw codeintel.Symbol objects for source code fetching.

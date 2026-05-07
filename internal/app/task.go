@@ -320,31 +320,6 @@ func (a *TaskApp) Start(ctx context.Context, opts TaskStartOptions) (*TaskResult
 	}, nil
 }
 
-// List returns all tasks, optionally filtered by plan.
-func (a *TaskApp) List(ctx context.Context, planID string) ([]task.Task, error) {
-	repo := a.ctx.Repo
-
-	if planID != "" {
-		return repo.ListTasks(planID)
-	}
-
-	// Get all tasks across all plans
-	plans, err := repo.ListPlans()
-	if err != nil {
-		return nil, fmt.Errorf("list plans: %w", err)
-	}
-
-	var allTasks []task.Task
-	for _, p := range plans {
-		tasks, err := repo.ListTasks(p.ID)
-		if err != nil {
-			continue
-		}
-		allTasks = append(allTasks, tasks...)
-	}
-	return allTasks, nil
-}
-
 // Complete marks a task as completed with git workflow and optional PR creation.
 func (a *TaskApp) Complete(ctx context.Context, opts TaskCompleteOptions) (*TaskResult, error) {
 	if opts.TaskID == "" {

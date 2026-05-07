@@ -48,7 +48,7 @@ func TestKnowledgeLinking_NoFK(t *testing.T) {
 			t.Error("LinkNodes with missing from_node should return error")
 		}
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
-			t.Error("Got raw FK constraint error — should be handled gracefully")
+			t.Error("Got raw FK constraint error - should be handled gracefully")
 		}
 		if !strings.Contains(err.Error(), "link skipped") {
 			t.Errorf("Expected 'link skipped' error, got: %v", err)
@@ -66,7 +66,7 @@ func TestKnowledgeLinking_NoFK(t *testing.T) {
 			t.Error("LinkNodes with missing to_node should return error")
 		}
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
-			t.Error("Got raw FK constraint error — should be handled gracefully")
+			t.Error("Got raw FK constraint error - should be handled gracefully")
 		}
 	})
 

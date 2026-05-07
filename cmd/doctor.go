@@ -12,6 +12,7 @@ import (
 
 	"github.com/josephgoksu/TaskWing/internal/bootstrap"
 	"github.com/josephgoksu/TaskWing/internal/config"
+	"github.com/josephgoksu/TaskWing/internal/project"
 	"github.com/josephgoksu/TaskWing/internal/task"
 	"github.com/josephgoksu/TaskWing/internal/ui"
 	"github.com/spf13/cobra"
@@ -25,7 +26,7 @@ var doctorCmd = &cobra.Command{
 
 Checks:
   • TaskWing initialization (global project store)
-  • MCP server registration for AI tools
+  • Slash command and hook registration for AI tools
   • Hooks configuration for autonomous execution
   • Active plan and task status
   • Session state
@@ -81,6 +82,9 @@ type doctorFixOptions struct {
 func evaluateDoctorState(cwd string) ([]DoctorCheck, map[string]bootstrap.IntegrationReport, bool, bool, int, int) {
 	checks := []DoctorCheck{}
 
+	// Check 0: Project marker file (SSOT for project identity)
+	checks = append(checks, checkProjectMarker(cwd))
+
 	// Check 1: TaskWing initialized
 	checks = append(checks, checkTaskWingInit(cwd))
 
@@ -91,8 +95,7 @@ func evaluateDoctorState(cwd string) ([]DoctorCheck, map[string]bootstrap.Integr
 	checks = append(checks, checkSession())
 
 	// Check 4: Shared integration evaluator (source of truth for bootstrap + doctor repair)
-	globalMap := makeGlobalMCPMap(detectExistingMCPConfigs())
-	reports := bootstrap.EvaluateIntegrations(cwd, globalMap)
+	reports := bootstrap.EvaluateIntegrations(cwd)
 	checks = append(checks, checksFromIntegrationReports(reports)...)
 
 	hasErrors := false
@@ -172,45 +175,36 @@ func runDoctor(cmd *cobra.Command) error {
 	}
 
 	// Human-readable output
-	headerStyle := ui.StyleHeader.Bold(true)
-	divider := ui.StyleSubtle.Render(strings.Repeat("━", 55))
+	ui.SectionHeader("Doctor")
 
-	fmt.Println()
-	fmt.Println(headerStyle.Render("TaskWing Doctor"))
-	fmt.Println(divider)
-	fmt.Println()
-
-	// Print all checks with styled output
 	for _, c := range checks {
 		printStyledCheck(c)
 	}
 
 	if opts.Fix {
-		fmt.Println()
-		fmt.Println(headerStyle.Render("Repair Summary"))
-		fmt.Printf("  Planned: %d  Applied: %d  Skipped: %d  Blocked: %d\n",
-			len(repairPlan), len(appliedRepairs), len(skippedRepairs), len(blockedRepairs))
+		ui.SectionHeader("Repair")
+		fmt.Printf("    %s  planned: %d · applied: %d · skipped: %d · blocked: %d\n",
+			ui.IconNeutral, len(repairPlan), len(appliedRepairs), len(skippedRepairs), len(blockedRepairs))
 		for _, action := range blockedRepairs {
-			fmt.Printf("  %s %s/%s: %s\n", ui.StyleCheckFail.Render("BLOCKED"), action.AI, action.Component, action.Reason)
+			fmt.Printf("    %s  %s/%s: %s\n", ui.IconFail, action.AI, action.Component, action.Reason)
 		}
 		for _, action := range skippedRepairs {
-			fmt.Printf("  %s %s/%s: %s\n", ui.StyleCheckWarn.Render("SKIPPED"), action.AI, action.Component, action.Reason)
+			fmt.Printf("    %s  %s/%s: %s\n", ui.IconWarn, action.AI, action.Component, action.Reason)
 		}
 	}
 
 	fmt.Println()
-	fmt.Println(divider)
-
-	// Summary with styled status
-	if hasErrors {
-		fmt.Println(ui.StyleCheckFail.Render("  FAIL") + "  Issues found. Fix the errors above before continuing.")
-	} else if hasWarnings {
-		fmt.Println(ui.StyleCheckWarn.Render("  WARN") + "  Warnings found. Review the warnings above.")
+	switch {
+	case hasErrors:
+		fmt.Printf("    %s  Issues found. Fix the errors above before continuing.\n", ui.IconFail)
+	case hasWarnings:
+		fmt.Printf("    %s  Warnings found. Review the warnings above.\n", ui.IconWarn)
 		printNextSteps(checks)
-	} else {
-		fmt.Println(ui.StyleCheckOK.Render("  PASS") + "  Everything looks good!")
+	default:
+		fmt.Printf("    %s  Everything looks good.\n", ui.IconOK)
 		printNextSteps(checks)
 	}
+	fmt.Println()
 
 	return nil
 }
@@ -231,31 +225,26 @@ func parseCSVFlag(v string) []string {
 	return out
 }
 
-func makeGlobalMCPMap(ais []string) map[string]bool {
-	out := make(map[string]bool, len(ais))
-	for _, ai := range ais {
-		out[ai] = true
-	}
-	return out
-}
 
 func printStyledCheck(c DoctorCheck) {
-	var statusBadge string
+	var icon string
 	switch c.Status {
 	case "ok":
-		statusBadge = ui.StyleCheckOK.Render("  ✔ PASS")
+		icon = ui.IconOK
 	case "warn":
-		statusBadge = ui.StyleCheckWarn.Render("  ⚠ WARN")
+		icon = ui.IconWarn
 	case "fail":
-		statusBadge = ui.StyleCheckFail.Render("  ✖ FAIL")
+		icon = ui.IconFail
+	default:
+		icon = ui.IconNeutral
 	}
 
 	name := ui.StyleCheckName.Render(c.Name)
 	msg := ui.StyleText.Render(c.Message)
 
-	fmt.Printf("%s  %s: %s\n", statusBadge, name, msg)
+	fmt.Printf("    %s  %s: %s\n", icon, name, msg)
 	if c.Hint != "" && c.Status != "ok" {
-		fmt.Printf("         %s\n", ui.StyleCheckHint.Render("└─ "+c.Hint))
+		fmt.Printf("       %s\n", ui.StyleCheckHint.Render("↳ "+c.Hint))
 	}
 }
 
@@ -276,7 +265,7 @@ func checksFromIntegrationReports(reports map[string]bootstrap.IntegrationReport
 					Name:    fmt.Sprintf("Integration (%s)", ai),
 					Status:  "warn",
 					Message: "Not configured",
-					Hint:    fmt.Sprintf("Run: taskwing bootstrap to generate %s integration", ai),
+					Hint:    fmt.Sprintf("Run: taskwing learn to generate %s integration", ai),
 				})
 			} else {
 				checks = append(checks, DoctorCheck{
@@ -394,23 +383,55 @@ func applyRepairPrimitive(primitive, aiName, cwd, binPath string, init *bootstra
 			return nil
 		}
 		return init.InstallHooksConfig("opencode", viper.GetBool("verbose"))
-	case "repairLocalMCP":
-		return installMCPForTarget(aiName, binPath, cwd)
-	case "repairGlobalMCP":
-		return installMCPForTarget(aiName, binPath, cwd)
 	default:
 		return fmt.Errorf("unknown repair primitive: %s", primitive)
 	}
 }
 
+// checkProjectMarker verifies that a .taskwing.yaml marker exists at the
+// detected project root. The marker is the explicit, declarative SSOT for
+// "this directory is a TaskWing project" - without it, project identity
+// relies on heuristics (go.mod, .git) that can produce ambiguous roots in
+// monorepo or workspace layouts.
+func checkProjectMarker(cwd string) DoctorCheck {
+	ctx := config.GetProjectContext()
+	root := cwd
+	if ctx != nil && ctx.RootPath != "" {
+		root = ctx.RootPath
+	}
+
+	markerPath := filepath.Join(root, project.MarkerFileName)
+	if _, err := os.Stat(markerPath); err == nil {
+		return DoctorCheck{
+			Name:    "Project Marker",
+			Status:  "ok",
+			Message: fmt.Sprintf("%s present at %s", project.MarkerFileName, root),
+		}
+	}
+
+	return DoctorCheck{
+		Name:    "Project Marker",
+		Status:  "warn",
+		Message: fmt.Sprintf("No %s at %s", project.MarkerFileName, root),
+		Hint:    "Run: taskwing init",
+	}
+}
+
 func checkTaskWingInit(cwd string) DoctorCheck {
-	storePath, err := config.GetProjectStorePath(cwd)
+	// Prefer the detected project root (promoted by .taskwing.yaml marker
+	// or language manifests) over the raw cwd, so the reported store path
+	// matches what GetMemoryBasePath actually resolves to.
+	root := cwd
+	if ctx := config.GetProjectContext(); ctx != nil && ctx.RootPath != "" {
+		root = ctx.RootPath
+	}
+	storePath, err := config.GetProjectStorePath(root)
 	if err != nil {
 		return DoctorCheck{
 			Name:    "Initialization",
 			Status:  "fail",
 			Message: "Cannot resolve project store",
-			Hint:    "Run: taskwing bootstrap",
+			Hint:    "Run: taskwing learn",
 		}
 	}
 
@@ -420,7 +441,7 @@ func checkTaskWingInit(cwd string) DoctorCheck {
 			Name:    "Initialization",
 			Status:  "warn",
 			Message: fmt.Sprintf("Project store exists at %s but no memory.db", storePath),
-			Hint:    "Run: taskwing bootstrap",
+			Hint:    "Run: taskwing learn",
 		}
 	}
 
@@ -439,7 +460,7 @@ func checkActivePlan() DoctorCheck {
 				Name:    "Active Plan",
 				Status:  "warn",
 				Message: "No project memory found",
-				Hint:    "Run: taskwing bootstrap",
+				Hint:    "Run: taskwing learn",
 			}
 		}
 		return DoctorCheck{

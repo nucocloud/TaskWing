@@ -31,6 +31,71 @@ func RenderPageHeader(title, subtitle string) {
 	}
 }
 
+// sectionRuleWidth controls how wide a SectionHeader rule renders.
+// Conservative default that fits an 80-col terminal with the 2-space indent.
+const sectionRuleWidth = 70
+
+// SectionHeader prints a consistent panel-style section header used by `taskwing
+// learn` and similar commands. The shape is `┌─ <title> ─────…─` in cyan.
+//
+//	  ┌─ 1. AI integration ─────────────────────────────
+func SectionHeader(title string) {
+	headerStyle := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+	ruleStyle := lipgloss.NewStyle().Foreground(ColorCyan)
+
+	prefix := "┌─ "
+	suffix := " "
+	dashes := sectionRuleWidth - lipgloss.Width(prefix) - lipgloss.Width(title) - lipgloss.Width(suffix)
+	if dashes < 3 {
+		dashes = 3
+	}
+	rule := strings.Repeat("─", dashes)
+
+	fmt.Printf("\n  %s%s%s%s\n",
+		ruleStyle.Render(prefix),
+		headerStyle.Render(title),
+		suffix,
+		ruleStyle.Render(rule),
+	)
+}
+
+// Status icons used everywhere. Keep this set small and consistent so users
+// learn the meanings quickly:
+//
+//	✓ ok        ⚠ warning      ✗ failure
+//	● neutral   ─ skipped      … in progress
+var (
+	IconOK      = lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true).Render("✓")
+	IconWarn    = lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).Render("⚠")
+	IconFail    = lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render("✗")
+	IconNeutral = lipgloss.NewStyle().Foreground(ColorDim).Render("●")
+	IconSkip    = lipgloss.NewStyle().Foreground(ColorDim).Render("─")
+	IconWait    = lipgloss.NewStyle().Foreground(ColorDim).Render("…")
+)
+
+// StatusLine prints `    <icon>  <text>`, with the icon and text spaced out so
+// long runs of status lines align cleanly. Use under SectionHeader.
+func StatusLine(icon, text string) {
+	fmt.Printf("    %s  %s\n", icon, text)
+}
+
+// StatusLineRight prints a status line with a right-aligned trailing column
+// (typically a duration or count) rendered in dim color. Pads the text so
+// the trailing column lands at a consistent position.
+func StatusLineRight(icon, text, trailing string) {
+	const totalWidth = 60
+	body := fmt.Sprintf("    %s  %s", icon, text)
+	pad := totalWidth - lipgloss.Width(body)
+	if pad < 1 {
+		pad = 1
+	}
+	dim := lipgloss.NewStyle().Foreground(ColorDim)
+	fmt.Printf("%s%s%s\n", body, strings.Repeat(" ", pad), dim.Render(trailing))
+}
+
+// StyleDim is the canonical style for hints, durations, and other secondary text.
+var StyleDim = lipgloss.NewStyle().Foreground(ColorDim)
+
 // Panel represents a styled panel with optional title and content.
 // Similar to Python's rich.Panel for displaying boxed content.
 type Panel struct {

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/josephgoksu/TaskWing/internal/config"
 	"github.com/josephgoksu/TaskWing/internal/project"
 )
@@ -30,7 +31,6 @@ type Action string
 const (
 	ActionInitProject       Action = "init_project"        // Create .taskwing/ structure
 	ActionGenerateAIConfigs Action = "generate_ai_configs" // Create slash commands, hooks
-	ActionInstallMCP        Action = "install_mcp"         // Register with AI CLI (global)
 	ActionIndexCode         Action = "index_code"          // Run code symbol indexing
 	ActionExtractMetadata   Action = "extract_metadata"    // Git stats, docs (deterministic)
 	ActionLLMAnalyze        Action = "llm_analyze"         // Deep LLM analysis
@@ -66,13 +66,11 @@ type AIHealth struct {
 	CommandFilesCount     int                `json:"command_files_count"`
 	HooksConfigExists     bool               `json:"hooks_config_exists"` // Only for claude/codex
 	HooksConfigValid      bool               `json:"hooks_config_valid"`  // JSON parseable?
-	GlobalMCPExists       bool               `json:"global_mcp_exists"`
 	Reason                string             `json:"reason,omitempty"`
 	Ownership             Ownership          `json:"ownership,omitempty"`
 	Issues                []IntegrationIssue `json:"issues,omitempty"`
 	ManagedLocalDrift     bool               `json:"managed_local_drift"`
 	UnmanagedDrift        bool               `json:"unmanaged_drift"`
-	GlobalMCPDrift        bool               `json:"global_mcp_drift"`
 	TaskWingLikeUnmanaged bool               `json:"taskwing_like_unmanaged"`
 }
 
@@ -92,10 +90,8 @@ type Snapshot struct {
 
 	// Aggregated state
 	HasAnyLocalAI   bool     `json:"has_any_local_ai"`
-	HasAnyGlobalMCP bool     `json:"has_any_global_mcp"`
 	MissingLocalAIs []string `json:"missing_local_ais,omitempty"`
 	ExistingLocalAI []string `json:"existing_local_ais,omitempty"`
-	GlobalMCPAIs    []string `json:"global_mcp_ais,omitempty"`
 
 	// Code stats
 	FileCount      int  `json:"file_count"`
@@ -141,7 +137,6 @@ type Plan struct {
 	SkippedActions    []string `json:"skipped_actions,omitempty"` // Actions we're not taking + why
 	ManagedDriftAIs   []string `json:"managed_drift_ais,omitempty"`
 	UnmanagedDriftAIs []string `json:"unmanaged_drift_ais,omitempty"`
-	GlobalMCPDriftAIs []string `json:"global_mcp_drift_ais,omitempty"`
 
 	// Execution state (populated during execution, not planning)
 	SelectedAIs []string `json:"selected_ais,omitempty"` // User's actual AI selection
@@ -220,10 +215,6 @@ func ProbeEnvironment(basePath string) (*Snapshot, error) {
 			snap.MissingLocalAIs = append(snap.MissingLocalAIs, ai)
 		}
 
-		if health.GlobalMCPExists {
-			snap.HasAnyGlobalMCP = true
-			snap.GlobalMCPAIs = append(snap.GlobalMCPAIs, ai)
-		}
 	}
 
 	// Count source files (for large project detection)
@@ -247,7 +238,6 @@ func DecidePlan(snap *Snapshot, flags Flags) *Plan {
 	}
 	plan.ManagedDriftAIs = managedLocalDriftAIsFromSnapshot(snap)
 	plan.UnmanagedDriftAIs = unmanagedDriftAIsFromSnapshot(snap)
-	plan.GlobalMCPDriftAIs = globalMCPDriftAIsFromSnapshot(snap)
 
 	// First, validate flags
 	if err := ValidateFlags(flags); err != nil {
@@ -268,23 +258,13 @@ func DecidePlan(snap *Snapshot, flags Flags) *Plan {
 	projectPartial := snap.Project.Status == HealthPartial || snap.Project.Status == HealthInvalid
 
 	switch {
-	case projectMissing && !snap.HasAnyLocalAI && !snap.HasAnyGlobalMCP:
+	case projectMissing && !snap.HasAnyLocalAI:
 		// Nothing exists - full first-time setup
 		plan.Mode = ModeFirstTime
 		plan.DetectedState = "New project - no existing TaskWing configuration"
 		plan.RequiresUserInput = true
-		plan.Reasons = append(plan.Reasons, "No .taskwing/ directory found")
+		plan.Reasons = append(plan.Reasons, "No project store found at ~/.taskwing/projects/<slug>/")
 		plan.Reasons = append(plan.Reasons, "No local AI configurations found")
-		plan.Reasons = append(plan.Reasons, "No global MCP registrations found")
-
-	case projectMissing && snap.HasAnyGlobalMCP:
-		// Global MCP exists but no local project
-		plan.Mode = ModeFirstTime
-		plan.DetectedState = "New local project (global MCP config detected)"
-		plan.RequiresUserInput = true
-		plan.SuggestedAIs = snap.GlobalMCPAIs
-		plan.Reasons = append(plan.Reasons, "No .taskwing/ directory found")
-		plan.Reasons = append(plan.Reasons, fmt.Sprintf("Global MCP found for: %s", strings.Join(snap.GlobalMCPAIs, ", ")))
 
 	case projectPartial:
 		// .taskwing exists but is incomplete
@@ -316,7 +296,7 @@ func DecidePlan(snap *Snapshot, flags Flags) *Plan {
 			plan.Reasons = append(plan.Reasons, fmt.Sprintf("%s: %s (%s)", ai, health.Status, health.Reason))
 		}
 
-	case projectOK && !snap.HasAnyLocalAI && !snap.HasAnyGlobalMCP:
+	case projectOK && !snap.HasAnyLocalAI:
 		// Project exists but no AI configs at all
 		plan.Mode = ModeReconfigure
 		plan.DetectedState = "No AI configurations found"
@@ -391,10 +371,6 @@ func DecidePlan(snap *Snapshot, flags Flags) *Plan {
 			fmt.Sprintf("Unmanaged drift detected for: %s. TaskWing will not mutate these automatically.", strings.Join(plan.UnmanagedDriftAIs, ", ")))
 		plan.Warnings = append(plan.Warnings, "Run: taskwing doctor --fix --adopt-unmanaged")
 	}
-	// Global MCP drift is not surfaced as a warning during bootstrap.
-	// Users who need global MCP can use 'tw doctor --fix' explicitly.
-	// Bootstrap should not nag about optional global configuration.
-
 	// NoOp detection
 	if len(plan.Actions) == 0 && plan.Mode != ModeError {
 		plan.Mode = ModeNoOp
@@ -414,7 +390,7 @@ func decideActions(snap *Snapshot, flags Flags, mode BootstrapMode) []Action {
 	if !flags.SkipInit {
 		switch mode {
 		case ModeFirstTime:
-			actions = append(actions, ActionInitProject, ActionGenerateAIConfigs, ActionInstallMCP)
+			actions = append(actions, ActionInitProject, ActionGenerateAIConfigs)
 		case ModeRepair:
 			if snap.Project.Status != HealthOK {
 				actions = append(actions, ActionInitProject)
@@ -423,7 +399,7 @@ func decideActions(snap *Snapshot, flags Flags, mode BootstrapMode) []Action {
 				actions = append(actions, ActionGenerateAIConfigs)
 			}
 		case ModeReconfigure:
-			actions = append(actions, ActionGenerateAIConfigs, ActionInstallMCP)
+			actions = append(actions, ActionGenerateAIConfigs)
 		case ModeRun:
 			// Auto-generate configs for AIs that are completely missing.
 			// This covers the case where project+some AIs exist but others were never set up.
@@ -502,17 +478,6 @@ func unmanagedDriftAIsFromSnapshot(snap *Snapshot) []string {
 	return ais
 }
 
-func globalMCPDriftAIsFromSnapshot(snap *Snapshot) []string {
-	var ais []string
-	for ai, health := range snap.AIHealth {
-		if health.GlobalMCPDrift {
-			ais = append(ais, ai)
-		}
-	}
-	sort.Strings(ais)
-	return ais
-}
-
 func generateActionSummary(actions []Action, flags Flags) []string {
 	summaries := make([]string, 0, len(actions))
 	for _, action := range actions {
@@ -521,8 +486,6 @@ func generateActionSummary(actions []Action, flags Flags) []string {
 			summaries = append(summaries, "Create .taskwing/ directory structure")
 		case ActionGenerateAIConfigs:
 			summaries = append(summaries, "Generate AI slash commands and hooks")
-		case ActionInstallMCP:
-			summaries = append(summaries, "Register MCP server with AI CLI")
 		case ActionIndexCode:
 			summaries = append(summaries, "Index code symbols (functions, types, etc.)")
 		case ActionExtractMetadata:
@@ -540,7 +503,6 @@ func generateSkippedActions(snap *Snapshot, flags Flags) []string {
 	if flags.SkipInit {
 		skipped = append(skipped, "init_project (reason: --skip-init flag)")
 		skipped = append(skipped, "generate_ai_configs (reason: --skip-init flag)")
-		skipped = append(skipped, "install_mcp (reason: --skip-init flag)")
 	}
 
 	if flags.SkipIndex {
@@ -600,7 +562,7 @@ func probeProjectHealth(basePath string) ProjectHealth {
 }
 
 func probeAIHealth(basePath, aiName string) AIHealth {
-	report := EvaluateIntegration(basePath, aiName, checkGlobalMCPForAI(aiName))
+	report := EvaluateIntegration(basePath, aiName)
 	health := AIHealth{
 		Name:                  aiName,
 		CommandsDirExists:     report.CommandsDirExists,
@@ -608,11 +570,9 @@ func probeAIHealth(basePath, aiName string) AIHealth {
 		CommandFilesCount:     report.CommandFilesCount,
 		HooksConfigExists:     report.HooksConfigExists,
 		HooksConfigValid:      report.HooksConfigValid,
-		GlobalMCPExists:       report.GlobalMCPExists,
 		Issues:                report.Issues,
 		ManagedLocalDrift:     report.ManagedLocalDrift,
 		UnmanagedDrift:        report.UnmanagedDrift,
-		GlobalMCPDrift:        report.GlobalMCPDrift,
 		TaskWingLikeUnmanaged: report.TaskWingLikeUnmanaged,
 		Ownership:             report.ComponentOwnership[AIComponentCommands],
 	}
@@ -637,10 +597,6 @@ func probeAIHealth(basePath, aiName string) AIHealth {
 	}
 
 	for _, issue := range report.Issues {
-		// MCP drift should not demote local AI health classification.
-		if issue.Component == AIComponentMCPGlobal || issue.Component == AIComponentMCPLocal {
-			continue
-		}
 		// Unmanaged marker-loss only drift remains non-fatal for planner classification.
 		if issue.Ownership == OwnershipUnmanaged &&
 			issue.Component == AIComponentCommands &&
@@ -669,24 +625,6 @@ func probeAIHealth(basePath, aiName string) AIHealth {
 		health.Reason = "taskwing-like unmanaged configuration detected"
 	}
 	return health
-}
-
-// GlobalMCPDetector is an optional function that checks if an AI has global MCP configured.
-// This is injected by the caller (cmd layer) since it requires running CLI commands.
-// If nil, global MCP detection is skipped and must be patched after ProbeEnvironment.
-var GlobalMCPDetector func(aiName string) bool
-
-// checkGlobalMCPForAI checks if the given AI has TaskWing MCP configured globally.
-// Uses the injected GlobalMCPDetector if available, otherwise returns false.
-// NOTE: For CLI-based detection, the cmd layer should:
-// 1. Call ProbeEnvironment
-// 2. Detect global MCP using CLI commands
-// 3. Patch the snapshot with the results
-func checkGlobalMCPForAI(aiName string) bool {
-	if GlobalMCPDetector != nil {
-		return GlobalMCPDetector(aiName)
-	}
-	return false // Conservative default when no detector is injected
 }
 
 func detectProjectRoot(basePath string) string {
@@ -796,7 +734,7 @@ func FormatPlanSummary(plan *Plan, quiet bool) string {
 
 	// Quiet mode: single-line machine-readable status
 	if quiet {
-		fmt.Fprintf(&sb, "Bootstrap: mode=%s", plan.Mode)
+		fmt.Fprintf(&sb, "Learn: mode=%s", plan.Mode)
 		if len(plan.Actions) > 0 {
 			actionNames := make([]string, len(plan.Actions))
 			for i, a := range plan.Actions {
@@ -808,46 +746,47 @@ func FormatPlanSummary(plan *Plan, quiet bool) string {
 		return sb.String()
 	}
 
-	// Human-readable summary
-	fmt.Fprintf(&sb, "%s\n", plan.DetectedState)
+	// Human-readable summary, panel style.
+	dim := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "247", Dark: "240"})
+	cyan := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "30", Dark: "87"}).Bold(true)
+
+	const ruleWidth = 70
+	header := "  " + cyan.Render("┌─ ") + cyan.Render("Plan") + " " + cyan.Render(strings.Repeat("─", ruleWidth-len("  ┌─ Plan ")))
+	fmt.Fprintf(&sb, "\n%s\n", header)
+	fmt.Fprintf(&sb, "    %s  %s\n", dim.Render("●"), plan.DetectedState)
 
 	if plan.RequiresRepoSelection {
 		if len(plan.SelectedRepos) > 0 {
-			fmt.Fprintf(&sb, "Workspace: %d repositories selected\n", len(plan.SelectedRepos))
+			fmt.Fprintf(&sb, "    %s  %d repositories selected\n", dim.Render("●"), len(plan.SelectedRepos))
 		} else if len(plan.DetectedRepos) > 0 {
-			fmt.Fprintf(&sb, "Workspace: %d repositories detected\n", len(plan.DetectedRepos))
+			fmt.Fprintf(&sb, "    %s  %d repositories detected\n", dim.Render("●"), len(plan.DetectedRepos))
 		}
 	}
 
-	// Show what will happen
-	if len(plan.Actions) > 0 {
-		sb.WriteString("\n")
-		for _, summary := range plan.ActionSummary {
-			fmt.Fprintf(&sb, "  %s\n", summary)
+	if len(plan.ActionSummary) > 0 {
+		fmt.Fprintf(&sb, "\n    %s\n", dim.Render("steps:"))
+		for i, summary := range plan.ActionSummary {
+			fmt.Fprintf(&sb, "      %d. %s\n", i+1, summary)
 		}
 	}
 
-	// Drift: show which tools are being updated (concise)
 	if len(plan.ManagedDriftAIs) > 0 {
-		fmt.Fprintf(&sb, "\n  Updating: %s\n", strings.Join(plan.ManagedDriftAIs, ", "))
+		fmt.Fprintf(&sb, "\n    %s  updating: %s\n", dim.Render("●"), strings.Join(plan.ManagedDriftAIs, ", "))
 	}
 	if len(plan.UnmanagedDriftAIs) > 0 {
-		fmt.Fprintf(&sb, "\n  Detected unmanaged config: %s\n", strings.Join(plan.UnmanagedDriftAIs, ", "))
-		sb.WriteString("  Run 'taskwing doctor --fix --adopt-unmanaged' to claim.\n")
+		fmt.Fprintf(&sb, "\n    %s  unmanaged config: %s\n", dim.Render("●"), strings.Join(plan.UnmanagedDriftAIs, ", "))
+		fmt.Fprintf(&sb, "       %s\n", dim.Render("↳ run 'taskwing doctor --fix --adopt-unmanaged' to claim"))
 	}
-	// Global MCP drift is not shown in bootstrap plan summary.
-	// Use 'tw doctor' for optional global MCP setup.
-
 	if len(plan.SkippedActions) > 0 {
-		sb.WriteString("\n  Skipped:\n")
+		fmt.Fprintf(&sb, "\n    %s\n", dim.Render("skipped:"))
 		for _, skipped := range plan.SkippedActions {
-			fmt.Fprintf(&sb, "    %s\n", skipped)
+			fmt.Fprintf(&sb, "      %s %s\n", dim.Render("─"), dim.Render(skipped))
 		}
 	}
 
 	if len(plan.Warnings) > 0 {
 		for _, warning := range plan.Warnings {
-			fmt.Fprintf(&sb, "\n  Warning: %s\n", warning)
+			fmt.Fprintf(&sb, "\n    %s  %s\n", "⚠", warning)
 		}
 	}
 

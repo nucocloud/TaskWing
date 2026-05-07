@@ -33,7 +33,7 @@ Your AI tools start every session from zero -- and every session, your code cont
 ```
 Without TaskWing              With TaskWing
 ─────────────────             ─────────────
-8-12 file reads               1 MCP query
+8-12 file reads               1 taskwing ask
 ~25,000 tokens                ~1,500 tokens
 2-3 minutes                   42 seconds
 No architectural context       170+ knowledge nodes
@@ -58,22 +58,26 @@ curl -fsSL https://taskwing.app/install.sh | sh
 ## Quick Start
 
 ```bash
-# 1. Extract your architecture (one-time)
+# 1. Declare a TaskWing project + generate AI tool integration files
 cd your-project
-taskwing bootstrap
+taskwing init                  # writes .taskwing.yaml + .claude/commands/taskwing/
+
+# 2. Extract your architecture (one-time)
+taskwing learn
 # -> 22 decisions, 12 patterns, 9 constraints extracted
 
-# 2. Connect to your AI tool
-taskwing mcp install claude    # or: cursor, gemini, codex, copilot, opencode
-
 # 3. Plan and execute with your AI assistant
-/taskwing:plan       # Create a plan via MCP
+/taskwing:plan       # Create a plan
 /taskwing:next       # Get next task with full context
 # ...work...
 /taskwing:done       # Mark complete, advance to next
 ```
 
 That's it. Your AI assistant now has local architectural context across every session.
+
+Slash commands are pure prompts that drive the `taskwing` CLI directly - no
+MCP server, no daemon, no per-AI registration. They work in any AI client that
+can run shell commands.
 
 ## Private by Architecture
 
@@ -94,7 +98,7 @@ TaskWing keeps your knowledge base on your machine. No cloud database, no accoun
   │ Local SQLite         │  Your knowledge base.
   │ Never uploaded.      │  Never leaves your machine.
   └──────────┬───────────┘
-             │ local stdio (MCP)
+             │ taskwing CLI (local subprocess)
              v
   ┌──────────────────────┐              ┌───────────────────────┐
   │ AI Tool              │  may send    │ Tool's own cloud      │
@@ -109,7 +113,7 @@ TaskWing keeps your knowledge base on your machine. No cloud database, no accoun
   │ Your codebase ├──────>│ Ollama  ├──────>│ .taskwing/   │
   └──────────────┘        │ (local) │        │ memory.db    │
                           └─────────┘        └──────┬───────┘
-                                                    │ local stdio
+                                                    │ taskwing CLI
                                                     v
                                              ┌──────────────┐
                                              │ Local AI tool │
@@ -117,7 +121,7 @@ TaskWing keeps your knowledge base on your machine. No cloud database, no accoun
                                              Zero network calls.
 ```
 
-**What TaskWing controls:** Your knowledge base is stored and queried locally. MCP serves responses over local stdio -- no network calls.
+**What TaskWing controls:** Your knowledge base is stored and queried locally. AI tools invoke the `taskwing` CLI as a local subprocess - no network calls.
 
 **What your AI tool controls:** Cloud-based tools (Claude, Cursor, Copilot) may send conversations to their own servers. Check their privacy settings (e.g., Cursor's Privacy Mode, Copilot's data retention policies).
 
@@ -157,7 +161,7 @@ Brand names and logos are trademarks of their respective owners; usage here indi
 | **AI-driven lifecycle** | Task execution -- next, start, complete, verify |
 | **Code analysis** | Symbol search, call graphs, impact analysis, simplification |
 | **Root cause first** | AI-powered diagnosis before proposing fixes |
-| **Works everywhere** | Exposes everything to 6+ AI tools via local MCP |
+| **Works everywhere** | Slash commands invoke the `taskwing` CLI directly - works in any AI tool that runs shell commands |
 
 ## Slash Commands
 
@@ -171,31 +175,20 @@ Use these from your AI assistant once connected:
 | `/taskwing:context` | Get full project knowledge dump for complete architectural context |
 
 <details>
-<summary>MCP setup (manual)</summary>
+<summary>CLI verbs the slash commands rely on</summary>
 
-`taskwing mcp install` handles this automatically. If you need to configure manually, add to your AI tool's MCP config:
+The four slash commands above are pure prompts that drive these CLI verbs.
+You can run any of them by hand to drive TaskWing without an AI tool:
 
-```json
-{
-  "mcpServers": {
-    "taskwing": {
-      "command": "taskwing",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-<!-- TASKWING_MCP_TOOLS_START -->
-| Tool | Description |
-|------|-------------|
-| `ask` | Search project knowledge (decisions, patterns, constraints) |
-| `task` | Unified task lifecycle (`next`, `current`, `start`, `complete`) |
-| `plan` | Plan management (`clarify`, `decompose`, `expand`, `generate`, `finalize`, `audit`) |
-| `code` | Code intelligence (`find`, `search`, `explain`, `callers`, `impact`, `simplify`) |
-| `debug` | Diagnose issues systematically with AI-powered analysis |
-| `remember` | Store knowledge in project memory |
-<!-- TASKWING_MCP_TOOLS_END -->
+| Verb | Purpose |
+|------|---------|
+| `taskwing ask "<query>" --json` | Search project knowledge (decisions, patterns, constraints) |
+| `taskwing knowledge --json` | Dump every knowledge node, grouped by type |
+| `taskwing task next --json` | Get the next pending task |
+| `taskwing task current --json` | Show the current in-progress task |
+| `taskwing task start <id>` | Claim a task |
+| `taskwing task complete <id> --summary "..." --files a,b,c` | Mark complete |
+| `taskwing plan --params '<json>'` | Drive a plan flow (clarify → decompose → expand → finalize) |
 
 </details>
 
@@ -243,10 +236,12 @@ Or configure interactively: `taskwing config`
 </details>
 
 <!-- TASKWING_COMMANDS_START -->
-- `taskwing bootstrap`
+- `taskwing init`
+- `taskwing learn`
 - `taskwing ask "<query>"`
-- `taskwing task`
-- `taskwing mcp`
+- `taskwing knowledge`
+- `taskwing task <next|current|start|complete>`
+- `taskwing plan --params '<json>'`
 - `taskwing doctor`
 - `taskwing config`
 - `taskwing start`

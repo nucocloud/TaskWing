@@ -455,7 +455,7 @@ var ModelRegistry = []Model{
 
 	// ============================================
 	// Karluk Models (fine-tuned, hosted via RunPod Serverless vLLM)
-	// Named after the Karluks — a prominent Turkic confederation that controlled Silk Road trade routes in 8th-century Central Asia.
+	// Named after the Karluks - a prominent Turkic confederation that controlled Silk Road trade routes in 8th-century Central Asia.
 	// Optimized for architecture extraction tasks.
 	// Requires TASKWING_API_KEY. Endpoint configurable via llm.taskwing.base_url.
 	// ============================================

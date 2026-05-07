@@ -476,17 +476,3 @@ func (a *ExpandAgent) Run(ctx context.Context, input core.Input) (core.Output, e
 	), nil
 }
 
-func init() {
-	core.RegisterAgent("clarifying", func(cfg llm.Config, basePath string) core.Agent {
-		return NewClarifyingAgent(cfg)
-	}, "Goal Clarification", "Refines user goals by asking clarifying questions")
-	core.RegisterAgent("planning", func(cfg llm.Config, basePath string) core.Agent {
-		return NewPlanningAgent(cfg)
-	}, "Task Planning", "Decomposes goals into actionable tasks with dependencies")
-	core.RegisterAgent("decomposition", func(cfg llm.Config, basePath string) core.Agent {
-		return NewDecompositionAgent(cfg)
-	}, "Goal Decomposition", "Breaks enriched goals into high-level phases")
-	core.RegisterAgent("expand", func(cfg llm.Config, basePath string) core.Agent {
-		return NewExpandAgent(cfg)
-	}, "Phase Expansion", "Expands phases into detailed tasks")
-}

@@ -254,7 +254,7 @@ func sanitizeControlChars(input string) string {
 				result.WriteByte(c)
 				escaped = true
 			}
-			// Outside strings, backslashes are invalid JSON — strip them.
+			// Outside strings, backslashes are invalid JSON - strip them.
 			// Common in LLM output: literal \n between values, regex snippets, etc.
 			continue
 		}

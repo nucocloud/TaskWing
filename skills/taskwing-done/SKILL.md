@@ -25,14 +25,17 @@ The Workflow Contract lives in CLAUDE.md (single source of truth). Obey it alway
 Execute these steps IN ORDER.
 
 ## Step 1: Get Current Task
-Call MCP tool `task` with action `current`:
-```json
-{"action": "current"}
+
+Run:
+
+```bash
+taskwing task current --json
 ```
 
-If no active task, inform user and stop.
+If the command reports no active task, inform the user and stop.
 
 ## Step 2: Collect Fresh Verification Evidence
+
 Run the most relevant verification commands for the task (tests, lint, build, or targeted checks).
 
 Document:
@@ -65,7 +68,8 @@ Confirm alignment with codebase patterns.
 - Edge cases not handled
 
 ## Step 4: Completion Gate (Hard Gate)
-Before calling `task complete`, confirm:
+
+Before running `task complete`, confirm:
 - evidence is fresh (from Step 2)
 - acceptance criteria status is explicit
 - unresolved failures are called out
@@ -73,19 +77,22 @@ Before calling `task complete`, confirm:
 If any item is missing, STOP and use the refusal text above.
 
 ## Step 5: Mark Complete
-Call MCP tool `task` with action `complete`:
-```json
-{
-  "action": "complete",
-  "task_id": "[task_id]",
-  "summary": "[The structured summary from Step 2]",
-  "files_modified": ["path/to/file1.go", "path/to/file2.go"]
-}
+
+Run:
+
+```bash
+taskwing task complete <task_id> \
+  --summary "<the structured summary from Step 3>" \
+  --files path/to/file1.go,path/to/file2.go \
+  --json
 ```
+
+(`<task_id>` is the value from Step 1; quote the summary to preserve newlines.)
 
 ## Step 6: Confirm to User
 
 Display:
+
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TASK COMPLETE: [task_id]
@@ -96,9 +103,4 @@ TASK COMPLETE: [task_id]
 Recorded in TaskWing memory.
 Use /taskwing:next to continue with next priority task.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-## Fallback (No MCP)
-```bash
-taskwing task complete TASK_ID
 ```

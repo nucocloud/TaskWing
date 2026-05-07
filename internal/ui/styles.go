@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	// Colors — AdaptiveColor auto-selects Light/Dark based on terminal background
+	// Colors - AdaptiveColor auto-selects Light/Dark based on terminal background
 	ColorPrimary   = lipgloss.AdaptiveColor{Light: "161", Dark: "205"} // Pink
 	ColorSecondary = lipgloss.AdaptiveColor{Light: "244", Dark: "241"} // Gray
 	ColorSuccess   = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}   // Green

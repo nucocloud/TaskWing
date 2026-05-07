@@ -51,7 +51,8 @@ var rootCmd = &cobra.Command{
 	Use:   "taskwing",
 	Short: "Local-first AI knowledge layer for development.",
 	Long: `TaskWing extracts architectural knowledge from your codebase and stores it locally.
-Every AI tool gets instant context via MCP, without your knowledge base leaving your machine.`,
+Slash commands in your AI tool drive the taskwing CLI directly - no daemon,
+no MCP server, no cloud. The knowledge base never leaves your machine.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := initTelemetry(cmd, args); err != nil {
 			return err
@@ -100,11 +101,12 @@ func Execute() {
 // getCommandHint returns a helpful hint for common command mistakes
 func getCommandHint(cmd string) string {
 	hints := map[string]string{
-		"plans":   "Hint: Use /taskwing:plan in your AI tool",
-		"tasks":   "Hint: To list tasks, use: taskwing task list",
-		"create":  "Hint: Use /taskwing:plan in your AI tool",
-		"new":     "Hint: Use /taskwing:plan in your AI tool",
-		"install": "Hint: To install MCP, use: taskwing mcp install",
+		"plans":     "Hint: Use /taskwing:plan in your AI tool",
+		"tasks":     "Hint: To list tasks, use: taskwing task list",
+		"create":    "Hint: Use /taskwing:plan in your AI tool",
+		"new":       "Hint: Use /taskwing:plan in your AI tool",
+		"mcp":       "Hint: TaskWing no longer ships an MCP server. Run: taskwing init  (slash commands drive the CLI directly)",
+		"bootstrap": "Hint: 'bootstrap' was renamed to 'learn'. Run: taskwing learn",
 	}
 
 	if hint, ok := hints[cmd]; ok {
@@ -160,8 +162,8 @@ func GetVersion() string {
 // changes (e.g., after brew upgrade). Skips commands that don't need project context.
 func maybeRunPostUpgradeMigration(cmd *cobra.Command) {
 	// Skip commands that don't need migration (version, help)
-	// Note: mcp is NOT skipped -- when Claude Code starts the MCP server after
-	// a Brew upgrade, we want slash commands silently regenerated.
+	// All commands trigger the post-upgrade migration except version/help, so
+	// slash commands and hooks get silently regenerated after a brew upgrade.
 	for c := cmd; c != nil; c = c.Parent() {
 		n := c.Name()
 		if n == "version" || n == "help" {

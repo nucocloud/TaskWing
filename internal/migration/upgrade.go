@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,7 @@ import (
 
 // CheckAndMigrate runs a post-upgrade migration if the CLI version has changed
 // since the last run in this project. It silently regenerates local configs and
-// returns warnings for issues that require manual intervention (e.g., global MCP).
+// returns warnings for issues that require manual intervention.
 //
 // This is designed to be called from PersistentPreRunE and must be:
 //   - Sub-millisecond on the happy path (version matches)
@@ -41,7 +40,7 @@ func CheckAndMigrate(projectDir, currentVersion string) (warnings []string, err 
 
 	storedVersion := strings.TrimSpace(string(stored))
 
-	// Happy path: version matches — no-op
+	// Happy path: version matches - no-op
 	if storedVersion == currentVersion {
 		return nil, nil
 	}
@@ -59,10 +58,7 @@ func CheckAndMigrate(projectDir, currentVersion string) (warnings []string, err 
 	// 1. Silent local migration: regenerate slash commands for managed AIs
 	migrateLocalConfigs(projectDir)
 
-	// 2. Global MCP check: warn about legacy server names
-	warnings = checkGlobalMCPLegacy()
-
-	// 3. Write current version
+	// 2. Write current version
 	if werr := os.WriteFile(versionFile, []byte(currentVersion), 0644); werr != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  taskwing: could not write version stamp (%v); migration will re-run next time\n", werr)
 	}
@@ -107,37 +103,3 @@ func migrateLocalConfigs(projectDir string) {
 	}
 }
 
-// checkGlobalMCPLegacy reads Claude's global MCP config and warns if legacy
-// server names are present.
-func checkGlobalMCPLegacy() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	configPath := filepath.Join(home, ".claude", "claude_desktop_config.json")
-	return checkGlobalMCPLegacyAt(configPath)
-}
-
-// checkGlobalMCPLegacyAt checks a specific config file path for legacy server names.
-func checkGlobalMCPLegacyAt(configPath string) []string {
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil
-	}
-
-	var mcpCfg struct {
-		MCPServers map[string]json.RawMessage `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(content, &mcpCfg); err != nil {
-		return nil
-	}
-
-	var warnings []string
-	for name := range mcpCfg.MCPServers {
-		if config.IsLegacyServerName(name) {
-			warnings = append(warnings, fmt.Sprintf("Global MCP config has legacy server name %q. Run: taskwing doctor --fix --yes", name))
-		}
-	}
-
-	return warnings
-}

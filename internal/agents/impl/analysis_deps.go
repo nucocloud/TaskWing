@@ -342,8 +342,3 @@ func hasAnyDependencyFile(basePath string) bool {
 	return false
 }
 
-func init() {
-	core.RegisterAgent("deps", func(cfg llm.Config, basePath string) core.Agent {
-		return NewDepsAgent(cfg)
-	}, "Dependencies", "Analyzes project dependencies and their purposes")
-}

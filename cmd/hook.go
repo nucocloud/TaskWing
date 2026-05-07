@@ -238,12 +238,12 @@ func runContinueCheck(maxTasks, maxMinutes int) error {
 		})
 	}
 
-	// Open repository — graceful degradation on failure
+	// Open repository - graceful degradation on failure
 	repo, err := openRepo()
 	if err != nil {
 		if isMissingProjectMemoryError(err) {
 			return outputHookResponse(HookResponse{
-				Reason: "No project memory found. Run 'taskwing bootstrap' to initialize project memory, or use /taskwing:next to continue manually.",
+				Reason: "No project memory found. Run 'taskwing learn' to initialize project memory, or use /taskwing:next to continue manually.",
 			})
 		}
 		return outputHookResponse(HookResponse{

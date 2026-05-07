@@ -1,16 +1,13 @@
 /*
-Package core provides the agent factory registry.
+Package core provides the agent registry - a static catalog of every agent
+the bootstrap pipeline can run, used by the dashboard server to render the
+"agents" tab on `taskwing start`.
+
+Agents are constructed directly via their `New*Agent` constructors (see
+internal/bootstrap/factory.go); the registry is metadata-only and is the
+single source of truth for agent identity, name, and description.
 */
 package core
-
-import (
-	"sync"
-
-	"github.com/josephgoksu/TaskWing/internal/llm"
-)
-
-// AgentFactory creates an Agent with the given LLM config.
-type AgentFactory func(cfg llm.Config, basePath string) Agent
 
 // AgentInfo describes an agent for the registry.
 type AgentInfo struct {
@@ -19,78 +16,25 @@ type AgentInfo struct {
 	Description string `json:"description"`
 }
 
-// agentRegistration holds both factory and static metadata.
-type agentRegistration struct {
-	factory     AgentFactory
-	name        string
-	description string
+// catalog is the canonical list of agents. Update here to add/rename one.
+var catalog = []AgentInfo{
+	{"react", "ReAct Explorer", "Dynamically explores codebase using tools to identify architectural patterns"},
+	{"code", "Code Analysis", "Analyzes source code structure, patterns, and architecture"},
+	{"deps", "Dependencies", "Analyzes project dependencies and their purposes"},
+	{"doc", "Documentation", "Extracts knowledge from README and documentation files"},
+	{"git", "Git History", "Extracts decisions and patterns from git commit history"},
+	{"clarifying", "Goal Clarification", "Refines user goals by asking clarifying questions"},
+	{"planning", "Task Planning", "Decomposes goals into actionable tasks with dependencies"},
+	{"decomposition", "Goal Decomposition", "Breaks enriched goals into high-level phases"},
+	{"expand", "Phase Expansion", "Expands phases into detailed tasks"},
+	{"simplify", "Code Simplification", "Reduces code complexity and line count"},
+	{"explain", "Code Explanation", "Provides deep-dive explanations of code and concepts"},
+	{"debug", "Debug Helper", "Helps diagnose issues systematically"},
 }
 
-var (
-	registrations   = make(map[string]agentRegistration)
-	registrationsMu sync.RWMutex
-)
-
-// RegisterAgent registers an agent with static metadata.
-// This avoids creating agents with empty config just to get Name/Description.
-func RegisterAgent(id string, factory AgentFactory, name, description string) {
-	registrationsMu.Lock()
-	defer registrationsMu.Unlock()
-	registrations[id] = agentRegistration{
-		factory:     factory,
-		name:        name,
-		description: description,
-	}
-}
-
-// CreateAgent creates an agent by ID using the registered factory.
-func CreateAgent(id string, cfg llm.Config, basePath string) Agent {
-	registrationsMu.RLock()
-	defer registrationsMu.RUnlock()
-	if reg, ok := registrations[id]; ok {
-		return reg.factory(cfg, basePath)
-	}
-	return nil
-}
-
-// CreateAllAgents creates all registered agents.
-func CreateAllAgents(cfg llm.Config, basePath string) []Agent {
-	registrationsMu.RLock()
-	defer registrationsMu.RUnlock()
-	agents := make([]Agent, 0, len(registrations))
-	for _, reg := range registrations {
-		agents = append(agents, reg.factory(cfg, basePath))
-	}
-	return agents
-}
-
-// Registry returns metadata for all registered agents.
-// Uses static metadata instead of instantiating agents.
+// Registry returns the catalog of all known agents. Used by the dashboard.
 func Registry() []AgentInfo {
-	registrationsMu.RLock()
-	defer registrationsMu.RUnlock()
-	infos := make([]AgentInfo, 0, len(registrations))
-	for id, reg := range registrations {
-		infos = append(infos, AgentInfo{
-			ID:          id,
-			Name:        reg.name,
-			Description: reg.description,
-		})
-	}
-	return infos
-}
-
-// GetAgentByID returns agent info by ID.
-// Uses static metadata instead of instantiating agents.
-func GetAgentByID(id string) *AgentInfo {
-	registrationsMu.RLock()
-	defer registrationsMu.RUnlock()
-	if reg, ok := registrations[id]; ok {
-		return &AgentInfo{
-			ID:          id,
-			Name:        reg.name,
-			Description: reg.description,
-		}
-	}
-	return nil
+	out := make([]AgentInfo, len(catalog))
+	copy(out, catalog)
+	return out
 }

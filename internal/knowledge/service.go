@@ -653,7 +653,7 @@ func (s *Service) AddNode(ctx context.Context, input NodeInput) (*memory.Node, e
 		}
 	}
 
-	// 3. Save to Repo (upsert for dedup — matches by summary with Jaccard similarity)
+	// 3. Save to Repo (upsert for dedup - matches by summary with Jaccard similarity)
 	if err := s.repo.UpsertNodeBySummary(*node); err != nil {
 		return nil, fmt.Errorf("save node: %w", err)
 	}

@@ -18,11 +18,11 @@ var askCmd = &cobra.Command{
 	Use:          "ask <question>",
 	Short:        "Search project knowledge and code symbols",
 	SilenceUsage: true,
-	Long: `Query the project knowledge base from the CLI.
+	Long: `Query the project knowledge base.
 
 Searches architectural knowledge (decisions, patterns, constraints) and
-code symbols (functions, types, interfaces) using the same pipeline as
-the MCP ask tool.
+code symbols (functions, types, interfaces). The /taskwing:next slash command
+calls this verb under the hood; you can also run it directly.
 
 By default, uses hybrid search (FTS + vector). Use --fts-only to skip
 embedding API calls for faster, offline results.
@@ -30,7 +30,7 @@ embedding API calls for faster, offline results.
 Examples:
   taskwing ask "how does authentication work"
   taskwing ask "SQLite schema design" --limit 10
-  taskwing ask "how does the MCP server work" --answer
+  taskwing ask "how does the planner work" --answer
   taskwing ask "task state machine" --json
   taskwing ask "API endpoints" --fts-only
   taskwing ask "auth" --workspace=osprey`,

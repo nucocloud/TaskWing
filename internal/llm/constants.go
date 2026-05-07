@@ -55,7 +55,7 @@ const DefaultOllamaURL = "http://localhost:11434"
 const DefaultTaskWingURL = "https://api.runpod.ai/v2/karluk/openai/v1"
 
 // ModelKarluk is the fine-tuned model for architecture extraction (Qwen3-8B based).
-// Named after the Karluks — a prominent Turkic confederation that controlled Silk Road trade routes in 8th-century Central Asia.
+// Named after the Karluks - a prominent Turkic confederation that controlled Silk Road trade routes in 8th-century Central Asia.
 const ModelKarluk = "karluk"
 
 // DefaultModelForProvider returns the default model ID for a given provider.

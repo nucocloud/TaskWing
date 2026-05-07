@@ -11,12 +11,19 @@ import (
 // ErrNoProjectFound is returned when no project root could be detected.
 var ErrNoProjectFound = errors.New("no project root found")
 
+// MarkerFileName is the canonical filename for the explicit project marker.
+// Its presence in a directory declares that directory as a TaskWing project root.
+const MarkerFileName = ".taskwing.yaml"
+
 // markerFiles defines the files/directories to check for project detection.
 // Order matters for same-directory precedence within priority tiers.
 var markerFiles = []struct {
 	name       string
 	markerType MarkerType
 }{
+	// Highest: explicit user-declared marker
+	{MarkerFileName, MarkerTaskWingYAML},
+
 	// Language manifests
 	{"go.mod", MarkerGoMod},
 	{"package.json", MarkerPackageJSON},
@@ -62,11 +69,22 @@ func (d *detector) Detect(startPath string) (*Context, error) {
 		// Check for markers at current directory
 		marker := d.findMarkerAt(current)
 
-		// Always check for .git to track git root FIRST (before .taskwing check)
-		// This is critical: we need to know if we've passed a .git before considering
-		// .taskwing directories that are above it.
+		// Always check for .git to track git root FIRST.
+		// We need to know if we've passed a .git before deciding the final root.
 		if gitRoot == "" && d.hasGit(current) {
 			gitRoot = current
+		}
+
+		// Explicit marker (.taskwing.yaml) wins immediately - stop walking up.
+		// This is the user-declared SSOT for project identity.
+		if marker == MarkerTaskWingYAML {
+			ctx := &Context{
+				RootPath:   current,
+				MarkerType: marker,
+				GitRoot:    gitRoot,
+				IsMonorepo: gitRoot != "" && gitRoot != current,
+			}
+			return ctx, nil
 		}
 
 		// Track language manifest as candidate

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/josephgoksu/TaskWing/internal/config"
+	"github.com/josephgoksu/TaskWing/internal/ui"
 	"github.com/josephgoksu/TaskWing/internal/utils"
 	"github.com/josephgoksu/TaskWing/skills"
 )
@@ -192,10 +193,6 @@ func (i *Initializer) setupAIIntegrations(verbose bool, selectedAIs []string, sh
 		return nil
 	}
 
-	if showHeader {
-		fmt.Printf("🔧 Setting up AI integrations for: %s\n", strings.Join(validAIs, ", "))
-	}
-
 	for _, ai := range validAIs {
 		// Create slash commands
 		if err := i.CreateSlashCommands(ai, verbose); err != nil {
@@ -204,11 +201,11 @@ func (i *Initializer) setupAIIntegrations(verbose bool, selectedAIs []string, sh
 
 		// Install hooks config
 		if err := i.InstallHooksConfig(ai, verbose); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  Failed to install hooks for %s: %v\n", ai, err)
+			fmt.Fprintf(os.Stderr, "    ⚠  hooks failed for %s: %v\n", ai, err)
 		}
 
 		if showHeader {
-			fmt.Printf("   ✓ Created local config for %s\n", ai)
+			ui.StatusLine(ui.IconOK, fmt.Sprintf("%s configured", ai))
 		}
 	}
 
@@ -221,12 +218,11 @@ func (i *Initializer) setupAIIntegrations(verbose bool, selectedAIs []string, sh
 }
 
 func (i *Initializer) createStructure(verbose bool) error {
-	fmt.Println("📁 Creating project store...")
 	if err := os.MkdirAll(i.storePath, 0700); err != nil {
 		return fmt.Errorf("create store: %w", err)
 	}
 	if verbose {
-		fmt.Printf("  ✓ Created %s\n", i.storePath)
+		fmt.Printf("    %s  store: %s\n", "●", i.storePath)
 	}
 
 	// Track CLI version for post-upgrade migration detection
@@ -318,42 +314,19 @@ func SlashCommandNames() []string {
 	return names
 }
 
-// MCPTool describes a single MCP tool for documentation generation.
-type MCPTool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-// MCPTools is the canonical list of MCP tools exposed by the TaskWing MCP server.
-var MCPTools = []MCPTool{
-	{"ask", "Search project knowledge (decisions, patterns, constraints)"},
-	{"task", "Unified task lifecycle (next, current, start, complete)"},
-	{"plan", "Plan management (clarify, decompose, expand, generate, finalize, audit)"},
-	{"code", "Code intelligence (find, search, explain, callers, impact, simplify)"},
-	{"debug", "Diagnose issues systematically with AI-powered analysis"},
-	{"remember", "Store knowledge in project memory"},
-}
-
-// MCPToolNames returns MCP tool names in canonical order.
-func MCPToolNames() []string {
-	names := make([]string, 0, len(MCPTools))
-	for _, tool := range MCPTools {
-		names = append(names, tool.Name)
-	}
-	return names
-}
-
 // CoreCommand describes a CLI command included in documentation.
 type CoreCommand struct {
-	Display string `json:"display"` // e.g. "taskwing bootstrap"
+	Display string `json:"display"` // e.g. "taskwing learn"
 }
 
 // CoreCommands is the curated list of CLI commands shown in documentation.
 var CoreCommands = []CoreCommand{
-	{"taskwing bootstrap"},
+	{"taskwing init"},
+	{"taskwing learn"},
 	{"taskwing ask \"<query>\""},
+	{"taskwing knowledge"},
 	{"taskwing task"},
-	{"taskwing mcp"},
+	{"taskwing plan --params '<json>'"},
 	{"taskwing doctor"},
 	{"taskwing config"},
 	{"taskwing start"},
@@ -380,10 +353,6 @@ func AIToolConfigVersion(aiName string) string {
 
 	for _, cmd := range SlashCommands {
 		parts = append(parts, fmt.Sprintf("cmd:%s:%s:%s", cmd.BaseName, cmd.SlashCmd, cmd.Description))
-	}
-
-	for _, tool := range MCPTools {
-		parts = append(parts, fmt.Sprintf("mcp:%s:%s", tool.Name, tool.Description))
 	}
 
 	for _, cc := range CoreCommands {
@@ -476,7 +445,7 @@ func pruneStaleSlashCommands(commandsDir, ext string, verbose bool) error {
 	nsDir := filepath.Join(commandsDir, slashCommandNamespace)
 	nsEntries, err := os.ReadDir(nsDir)
 	if err != nil {
-		// Subdirectory may not exist yet (first install) — not an error
+		// Subdirectory may not exist yet (first install) - not an error
 		return nil
 	}
 
@@ -739,34 +708,19 @@ func (i *Initializer) createSingleFileInstructions(aiName string, verbose bool) 
 	fmt.Fprintf(&sb, "<!-- Version: %s -->\n\n", configVersion)
 
 	sb.WriteString("## TaskWing Integration\n\n")
-	sb.WriteString("This project uses TaskWing for AI-assisted development with project memory.\n\n")
+	sb.WriteString("This project uses TaskWing for AI-assisted development with project memory.\n")
+	sb.WriteString("Drive TaskWing by invoking the `taskwing` CLI directly - no MCP server is required.\n\n")
 
-	sb.WriteString("### Available Commands\n\n")
-	sb.WriteString("The following TaskWing commands are available via MCP (if configured in `.vscode/mcp.json`):\n\n")
-
+	sb.WriteString("### Available Slash Commands\n\n")
 	for _, cmd := range SlashCommands {
-		fmt.Fprintf(&sb, "- **%s**: %s\n", cmd.BaseName, cmd.Description)
+		fmt.Fprintf(&sb, "- **/%s**: %s\n", cmd.BaseName, cmd.Description)
 	}
 
-	sb.WriteString("\n### MCP Server Configuration\n\n")
-	sb.WriteString("To enable TaskWing MCP tools in VS Code with Copilot, add to `.vscode/mcp.json`:\n\n")
-	sb.WriteString("```json\n")
-	sb.WriteString(`{
-  "servers": {
-    "taskwing": {
-      "command": "taskwing",
-      "args": ["mcp"]
-    }
-  }
-}
-`)
-	sb.WriteString("```\n\n")
-
-	sb.WriteString("### Usage\n\n")
-	sb.WriteString("With MCP configured, you can use TaskWing tools via:\n")
-	sb.WriteString("- `@mcp taskwing ask \"query\"` - Search project knowledge\n")
-	sb.WriteString("- `@mcp taskwing task {\\\"action\\\":\\\"next\\\"}` - Get next task from plan (session_id auto-derived in MCP session)\n")
-	sb.WriteString("- `@mcp taskwing remember \"content\"` - Store knowledge\n")
+	sb.WriteString("\n### CLI Verbs the Slash Commands Use\n\n")
+	sb.WriteString("- `taskwing ask \"<query>\" --json` - search project knowledge\n")
+	sb.WriteString("- `taskwing knowledge --json` - dump every knowledge node\n")
+	sb.WriteString("- `taskwing task <next|current|start|complete> --json` - task lifecycle\n")
+	sb.WriteString("- `taskwing plan --params '<json>'` - clarify/decompose/expand/finalize a plan\n")
 
 	if err := os.WriteFile(filePath, []byte(sb.String()), 0644); err != nil {
 		// Rollback: restore legacy backup if write fails
@@ -1171,34 +1125,35 @@ const (
 )
 
 // taskwingDocSectionHeader is the static top portion of the documentation block.
-// The behavioral instructions at the top tell AI tools WHEN to use TaskWing MCP,
-// not just what's available. This is what makes the AI proactively use the tools.
+// The behavioral instructions at the top tell AI tools WHEN to invoke TaskWing,
+// not just what's available - this is what makes the agent proactively use it.
 const taskwingDocSectionHeader = `
 
 ## TaskWing Integration
 
-This project uses TaskWing for architectural knowledge management. You have access to TaskWing MCP tools.
+This project uses TaskWing for architectural knowledge management. AI tools
+drive TaskWing through the ` + "`taskwing`" + ` CLI directly - there is no MCP server.
 
 ### TaskWing Workflow Contract v1
 1. No implementation before a clarified and approved plan/task checkpoint.
 2. No completion claim without fresh verification evidence.
 3. No debug fix proposal without root-cause evidence.
 
-### MCP Tools (use directly, no skill needed)
-- ` + "`ask`" + ` -- Search project knowledge before modifying unfamiliar code.
-- ` + "`remember`" + ` -- Persist a decision or pattern for future sessions.
-- ` + "`code`" + ` -- Find symbols, explain call graphs, analyze impact, simplify code.
-- ` + "`debug`" + ` -- Diagnose issues with root-cause analysis.
-- ` + "`task`" + ` with action=current -- Check current task status.
+### CLI verbs the slash commands rely on
 
-**When to use TaskWing MCP tools:**
-- Before modifying unfamiliar code: call ` + "`ask`" + ` to check for relevant decisions, constraints, and patterns
-- Before planning multi-step work: call ` + "`plan`" + ` with action=clarify to get a structured plan
-- When asked about architecture, tech stack, or "why" questions: call ` + "`ask`" + ` with answer=true
-- After making an architectural decision: call ` + "`remember`" + ` to persist it for future sessions
-- To understand a symbol's role and callers: call ` + "`code`" + ` with action=explain
+- ` + "`taskwing ask \"<query>\" --json`" + ` - search project knowledge before modifying unfamiliar code
+- ` + "`taskwing knowledge --json`" + ` - dump every knowledge node, grouped by type
+- ` + "`taskwing task next/current/start/complete --json`" + ` - task lifecycle
+- ` + "`taskwing plan --params '<json>'`" + ` - plan flow (clarify/decompose/expand/generate/finalize/audit)
 
-**Do not** grep or read files to answer architecture questions when TaskWing MCP is available. The knowledge graph has pre-extracted, verified decisions with evidence.
+**When to invoke them directly (without a slash command):**
+- Before modifying unfamiliar code: ` + "`taskwing ask \"<scope> patterns constraints\" --json`" + `
+- When asked about architecture, tech stack, or "why" questions: ` + "`taskwing ask \"...\" --answer --json`" + `
+- To check current task status mid-work: ` + "`taskwing task current --json`" + `
+
+**Do not** grep or read files to answer architecture questions when TaskWing's
+knowledge base is populated. The graph has pre-extracted, verified decisions
+with evidence - ` + "`taskwing ask`" + ` is faster and more accurate.
 
 `
 
@@ -1235,29 +1190,19 @@ func buildTaskwingDocSection() string {
 	sb.WriteString(taskwingDocMarkerStart)
 	sb.WriteString(taskwingDocSectionHeader)
 
-	// Slash Commands — generated from SlashCommands registry
+	// Slash Commands - generated from SlashCommands registry
 	sb.WriteString("### Slash Commands\n")
 	for _, cmd := range SlashCommands {
 		fmt.Fprintf(&sb, "- /%s - %s\n", cmd.BaseName, cmd.Description)
 	}
 
-	// Core Commands — generated from CoreCommands registry
+	// Core Commands - generated from CoreCommands registry
 	sb.WriteString("\n### Core Commands\n\n")
 	sb.WriteString("<!-- TASKWING_COMMANDS_START -->\n")
 	for _, cc := range CoreCommands {
 		fmt.Fprintf(&sb, "- %s\n", cc.Display)
 	}
 	sb.WriteString("<!-- TASKWING_COMMANDS_END -->\n")
-
-	// MCP Tools — generated from MCPTools registry
-	sb.WriteString("\n### MCP Tools (Canonical Contract)\n\n")
-	sb.WriteString("<!-- TASKWING_MCP_TOOLS_START -->\n")
-	sb.WriteString("| Tool | Description |\n")
-	sb.WriteString("|------|-------------|\n")
-	for _, tool := range MCPTools {
-		fmt.Fprintf(&sb, "| %s | %s |\n", tool.Name, tool.Description)
-	}
-	sb.WriteString("<!-- TASKWING_MCP_TOOLS_END -->\n")
 
 	sb.WriteString(taskwingDocSectionFooter)
 	sb.WriteString(taskwingDocMarkerEnd)

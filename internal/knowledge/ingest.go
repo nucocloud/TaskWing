@@ -9,11 +9,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
 	"github.com/josephgoksu/TaskWing/internal/agents/core"
 	"github.com/josephgoksu/TaskWing/internal/agents/verification"
 	"github.com/josephgoksu/TaskWing/internal/memory"
 )
+
+// Render helpers: this package is below internal/ui in the import graph, so we
+// inline a small status-line helper that mirrors ui.StatusLine in shape but
+// uses lipgloss directly for colors. Keep colors in sync with internal/ui.
+var (
+	knIconOK   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "42"}).Bold(true).Render("✓")
+	knIconWarn = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "172", Dark: "214"}).Bold(true).Render("⚠")
+)
+
+func knStatus(icon, text string) {
+	fmt.Printf("    %s  %s\n", icon, text)
+}
 
 // IngestFindings processes a list of agent findings and saves them to the repository.
 // For incremental updates, provide filePaths to selectively purge/update nodes.
@@ -28,20 +41,9 @@ func (s *Service) IngestFindingsWithRelationships(ctx context.Context, findings 
 		return nil
 	}
 
-	if verbose {
-		fmt.Println("  Ingesting findings...")
-	}
-
-	// 0. Verify Findings (if basePath is set)
-	rejectedCount := 0
+	// 0. Verify Findings (if basePath is set). Counts are reported by verifyFindings.
 	if s.basePath != "" {
-		if verbose {
-			fmt.Print("  Verifying evidence...")
-		}
-		findings, _, rejectedCount = s.verifyFindings(ctx, findings, verbose)
-		if verbose {
-			fmt.Println()
-		}
+		findings, _, _ = s.verifyFindings(ctx, findings, verbose)
 	}
 
 	// 1. Mark existing nodes as stale (merge-and-mark, not destructive delete)
@@ -70,11 +72,7 @@ func (s *Service) IngestFindingsWithRelationships(ctx context.Context, findings 
 	totalEdges := evidenceEdges + semanticEdges + llmEdges
 
 	if verbose {
-		fmt.Println(" done")
-		if rejectedCount > 0 {
-			fmt.Printf("  %d findings rejected (unverifiable evidence)\n", rejectedCount)
-		}
-		fmt.Printf("  Saved %d nodes, %d edges\n", nodesCreated, totalEdges)
+		knStatus(knIconOK, fmt.Sprintf("%d nodes saved · %d edges linked", nodesCreated, totalEdges))
 	}
 
 	// Log staleness bookkeeping at debug level only
@@ -112,12 +110,13 @@ func (s *Service) verifyFindings(ctx context.Context, findings []core.Finding, v
 	}
 
 	if verbose {
-		fmt.Printf(" %d verified", verifiedCount)
+		text := fmt.Sprintf("%d findings verified", verifiedCount)
 		if partialCount > 0 {
-			fmt.Printf(" (%d partial)", partialCount)
+			text = fmt.Sprintf("%d findings verified (%d partial)", verifiedCount, partialCount)
 		}
+		knStatus(knIconOK, text)
 		if rejectedCount > 0 {
-			fmt.Printf(", %d rejected", rejectedCount)
+			knStatus(knIconWarn, fmt.Sprintf("%d rejected (unverifiable evidence)", rejectedCount))
 		}
 	}
 
@@ -154,18 +153,12 @@ func (s *Service) markStaleData(findings []core.Finding, filePaths []string, ver
 			seenAgents[f.SourceAgent] = true
 
 			if len(filePaths) > 0 {
-				if verbose {
-					fmt.Printf("  ♻️  Marking stale nodes for agent %s (files: %d)\n", f.SourceAgent, len(filePaths))
-				}
 				if err := s.repo.DeleteNodesByFiles(f.SourceAgent, filePaths); err != nil {
 					return fmt.Errorf("mark stale files for agent %s: %w", f.SourceAgent, err)
 				}
 				continue
 			}
 
-			if verbose {
-				fmt.Printf("  ♻️  Marking nodes for agent: %s\n", f.SourceAgent)
-			}
 			if err := s.repo.MarkNodesStaleByAgent(f.SourceAgent, workspaces...); err != nil {
 				return fmt.Errorf("mark stale agent %s: %w", f.SourceAgent, err)
 			}
@@ -196,10 +189,6 @@ func (s *Service) reconcileStaleNodes(findings []core.Finding, verbose bool) (in
 
 // ingestNodesWithIndex creates document nodes and returns a title->nodeID index for LLM relationship linking
 func (s *Service) ingestNodesWithIndex(ctx context.Context, findings []core.Finding, verbose bool) (int, int, map[string]string, error) {
-	if verbose {
-		fmt.Printf("  Generating embeddings for %d findings...", len(findings))
-	}
-
 	nodesCreated := 0
 	skippedDuplicates := 0
 	nodesByTitle := make(map[string]string) // title -> nodeID
@@ -316,7 +305,7 @@ func (s *Service) ingestNodesWithIndex(ctx context.Context, findings []core.Find
 		}
 	}
 	if verbose {
-		fmt.Printf(" %d created\n", nodesCreated)
+		knStatus(knIconOK, fmt.Sprintf("%d embeddings generated", nodesCreated))
 	}
 	return nodesCreated, skippedDuplicates, nodesByTitle, nil
 }
@@ -326,10 +315,6 @@ func (s *Service) ingestNodesWithIndex(ctx context.Context, findings []core.Find
 // 2. Semantic similarity (embedding-based)
 // Returns (evidenceEdges, semanticEdges, error)
 func (s *Service) linkKnowledgeGraph(verbose bool) (int, int, error) {
-	if verbose {
-		fmt.Print("  Linking knowledge graph")
-	}
-
 	allNodes, err := s.repo.ListNodes("")
 	if err != nil {
 		return 0, 0, err

@@ -569,7 +569,7 @@ Task completion fails (status != in_progress) →
 
 ### Scenario A: First-Time User
 
-**Input:** User runs `taskwing bootstrap` on new project
+**Input:** User runs `taskwing learn` on new project
 
 **System Behavior:**
 1. `ProbeEnvironment()` finds no `.taskwing/`, no AI configs

@@ -95,7 +95,7 @@ func (m repoSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if hasSelection {
 				return m, tea.Quit
 			}
-			// No selection — treat as cancel
+			// No selection - treat as cancel
 			m.quit = true
 			return m, tea.Quit
 		case "s":
@@ -119,7 +119,7 @@ func (m repoSelectModel) View() string {
 
 	var sb strings.Builder
 	sb.WriteString("\n")
-	sb.WriteString(StyleSelectTitle.Render("Choose repositories to bootstrap:"))
+	sb.WriteString(StyleSelectTitle.Render("Repositories to learn from"))
 	sb.WriteString("\n\n")
 
 	for i, choice := range m.choices {

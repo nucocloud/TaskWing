@@ -7,7 +7,7 @@
 ## Overview
 
 Add 4 internal post-processing agents to the bootstrap pipeline that cross-validate,
-refine, and synthesize findings. Users run `taskwing bootstrap` and get better output.
+refine, and synthesize findings. Users run `taskwing learn` and get better output.
 No user-facing configuration. Invisible quality improvement.
 
 ## Current Pipeline

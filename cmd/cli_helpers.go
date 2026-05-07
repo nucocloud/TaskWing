@@ -69,12 +69,12 @@ func handleMissingProjectMemoryError(err error) (bool, error) {
 			"ok":      false,
 			"error":   "project memory not initialized",
 			"next":    "run taskwing bootstrap",
-			"command": "taskwing bootstrap",
+			"command": "taskwing learn",
 		})
 	}
 
 	fmt.Println("No project memory found for this repository.")
-	fmt.Println("Run 'taskwing bootstrap' first.")
+	fmt.Println("Run 'taskwing learn' first.")
 	return true, nil
 }
 

@@ -8,11 +8,45 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/josephgoksu/TaskWing/internal/app"
+	"github.com/josephgoksu/TaskWing/internal/render"
 	"github.com/josephgoksu/TaskWing/internal/task"
 	"github.com/josephgoksu/TaskWing/internal/ui"
 	"github.com/josephgoksu/TaskWing/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// renderTaskRecord prints a Task as a compact key:value record.
+// This is the AI-friendly default output. Skip nil/empty fields.
+// Use printJSON for scripts and the pretty path (RenderPageHeader + emoji) for TTY.
+func renderTaskRecord(t *task.Task) {
+	r := render.NewRecord(os.Stdout)
+	r.Inline("id", t.ID)
+	r.Inline("title", t.Title)
+	if t.Status != "" {
+		r.Inlinef("status", "%s", t.Status)
+	}
+	r.Inlinef("priority", "%d", t.Priority)
+	r.Inline("scope", t.Scope)
+	r.Inline("complexity", t.Complexity)
+	if len(t.Keywords) > 0 {
+		r.Inline("keywords", strings.Join(t.Keywords, ", "))
+	}
+	if t.PlanID != "" {
+		r.Inline("plan", t.PlanID)
+	}
+	if t.PhaseID != "" {
+		r.Inline("phase", t.PhaseID)
+	}
+	if !t.ClaimedAt.IsZero() {
+		r.Inline("started", t.ClaimedAt.Format("2006-01-02 15:04"))
+	}
+
+	r.Block("description", t.Description)
+	r.List("ac", t.AcceptanceCriteria)
+	r.List("ask-first", t.SuggestedAskQueries)
+	r.List("validation", t.ValidationSteps)
+	r.End()
+}
 
 var taskCmd = &cobra.Command{
 	Use:   "task",
@@ -462,15 +496,16 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	if !isQuiet() {
-		fmt.Printf("✓ %s\n", result.Message)
+		fmt.Printf("status   completed\n")
+		fmt.Printf("message  %s\n", result.Message)
 		if result.Hint != "" {
-			fmt.Printf("  %s\n", result.Hint)
+			fmt.Printf("hint     %s\n", result.Hint)
 		}
 		if result.GitWorkflowApplied {
-			fmt.Printf("  Git: committed to %s\n", result.GitBranch)
+			fmt.Printf("git      committed to %s\n", result.GitBranch)
 		}
 		if result.PRCreated {
-			fmt.Printf("  PR: %s\n", result.PRURL)
+			fmt.Printf("pr       %s\n", result.PRURL)
 		}
 	}
 	return nil
@@ -572,7 +607,9 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	appCtx := app.NewContext(repo)
 	taskApp := app.NewTaskApp(appCtx)
 
-	if !isQuiet() && !isJSON() {
+	// Spinner only in interactive TTY mode and when not piping JSON.
+	pretty := ui.IsInteractive() && !isJSON()
+	if pretty && !isQuiet() {
 		fmt.Fprint(os.Stderr, "🔍 Getting next task...")
 	}
 
@@ -588,7 +625,7 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !isQuiet() && !isJSON() {
+	if pretty && !isQuiet() {
 		fmt.Fprintln(os.Stderr, " done")
 	}
 
@@ -597,39 +634,29 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success {
-		fmt.Printf("⚠️  %s\n", result.Message)
+		fmt.Printf("status   %s\n", "error")
+		fmt.Printf("message  %s\n", result.Message)
 		if result.Hint != "" {
-			fmt.Printf("💡 %s\n", result.Hint)
+			fmt.Printf("hint     %s\n", result.Hint)
 		}
 		return nil
 	}
 
 	if result.Task == nil {
-		fmt.Printf("✓ %s\n", result.Message)
+		fmt.Printf("status   %s\n", "no-task")
+		fmt.Printf("message  %s\n", result.Message)
 		if result.Hint != "" {
-			fmt.Printf("💡 %s\n", result.Hint)
+			fmt.Printf("hint     %s\n", result.Hint)
 		}
 		return nil
 	}
 
-	// Show task details
-	ui.RenderPageHeader("Next Task", "")
-
 	if result.GitWorkflowApplied {
-		fmt.Printf("🌿 Branch: %s\n\n", result.GitBranch)
+		fmt.Printf("branch   %s\n", result.GitBranch)
 	}
-
-	fmt.Printf("📋 %s\n", result.Task.Title)
-	fmt.Printf("   ID: %s\n", result.Task.ID)
-	fmt.Printf("   Status: %s\n", result.Task.Status)
-	fmt.Printf("   Priority: %d\n", result.Task.Priority)
-
-	if result.Task.Description != "" {
-		fmt.Printf("\n📝 %s\n", result.Task.Description)
-	}
-
+	renderTaskRecord(result.Task)
 	if result.Hint != "" {
-		fmt.Printf("\n💡 %s\n", result.Hint)
+		fmt.Printf("\nhint     %s\n", result.Hint)
 	}
 
 	return nil
@@ -678,27 +705,15 @@ func runTaskCurrent(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success || result.Task == nil {
-		fmt.Printf("ℹ️  %s\n", result.Message)
+		fmt.Printf("status   %s\n", "no-task")
+		fmt.Printf("message  %s\n", result.Message)
 		if result.Hint != "" {
-			fmt.Printf("💡 %s\n", result.Hint)
+			fmt.Printf("hint     %s\n", result.Hint)
 		}
 		return nil
 	}
 
-	// Show task details
-	ui.RenderPageHeader("Current Task", "")
-
-	fmt.Printf("📋 %s\n", result.Task.Title)
-	fmt.Printf("   ID: %s\n", result.Task.ID)
-	fmt.Printf("   Status: %s\n", result.Task.Status)
-	if !result.Task.ClaimedAt.IsZero() {
-		fmt.Printf("   Started: %s\n", result.Task.ClaimedAt.Format("2006-01-02 15:04"))
-	}
-
-	if result.Task.Description != "" {
-		fmt.Printf("\n📝 %s\n", result.Task.Description)
-	}
-
+	renderTaskRecord(result.Task)
 	return nil
 }
 
@@ -751,16 +766,19 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success {
-		fmt.Printf("⚠️  %s\n", result.Message)
+		fmt.Printf("status   %s\n", "error")
+		fmt.Printf("message  %s\n", result.Message)
 		return nil
 	}
 
 	if !isQuiet() {
-		fmt.Printf("✓ Started task: %s\n", result.Task.Title)
-		fmt.Printf("  ID: %s\n", result.Task.ID)
-
+		fmt.Printf("status   started\n")
+		if result.Task != nil {
+			fmt.Printf("id       %s\n", result.Task.ID)
+			fmt.Printf("title    %s\n", result.Task.Title)
+		}
 		if result.Hint != "" {
-			fmt.Printf("\n💡 %s\n", result.Hint)
+			fmt.Printf("hint     %s\n", result.Hint)
 		}
 	}
 

@@ -34,7 +34,7 @@ Load the project knowledge base into this conversation for architectural context
 1. Run the CLI to dump all knowledge as JSON:
 
 ```bash
-taskwing knowledge --json
+taskwing knowledge
 ```
 
 2. Present the returned knowledge verbatim. The response is organized by type (constraints, decisions, patterns, features).
@@ -46,20 +46,20 @@ taskwing knowledge --json
 For a single type:
 
 ```bash
-taskwing knowledge constraint --json
-taskwing knowledge decision --json
-taskwing knowledge pattern --json
+taskwing knowledge constraint
+taskwing knowledge decision
+taskwing knowledge pattern
 ```
 
 For a focused semantic query rather than a full dump:
 
 ```bash
-taskwing ask "auth patterns" --json
-taskwing ask "vectorsearch decisions" --limit 10 --json
+taskwing ask "auth patterns"
+taskwing ask "vectorsearch decisions" --limit 10
 ```
 
 ## Important
 
 - This is a READ-ONLY operation. It does not modify the knowledge base.
-- If `taskwing knowledge --json` returns an empty array, tell the user to run `taskwing bootstrap` first.
+- If `taskwing knowledge` reports no nodes, tell the user to run `taskwing learn` first.
 - Do NOT summarize or filter the results. Show everything so the user can verify.

@@ -28,7 +28,7 @@ Execute these steps IN ORDER. Do not skip any step.
 Run:
 
 ```bash
-taskwing task next --json
+taskwing task next
 ```
 
 Extract from the JSON response:
@@ -45,13 +45,13 @@ If the command reports no pending task, inform the user: "No pending tasks. Use 
 Run `taskwing ask` with a query based on the task scope:
 
 ```bash
-taskwing ask "<task.scope> patterns constraints decisions" --json
+taskwing ask "<task.scope> patterns constraints decisions"
 ```
 
 Examples:
-- scope "auth" → `taskwing ask "authentication cookies session patterns" --json`
-- scope "api" → `taskwing ask "api handlers middleware patterns" --json`
-- scope "vectorsearch" → `taskwing ask "lancedb embedding vector patterns" --json`
+- scope "auth" → `taskwing ask "authentication cookies session patterns"`
+- scope "api" → `taskwing ask "api handlers middleware patterns"`
+- scope "vectorsearch" → `taskwing ask "lancedb embedding vector patterns"`
 
 Extract: patterns, constraints, related decisions.
 
@@ -60,7 +60,7 @@ Extract: patterns, constraints, related decisions.
 Run `taskwing ask` with keywords from the task. Use `suggested_ask_queries` if available, otherwise extract keywords from the title.
 
 ```bash
-taskwing ask "<keywords from task title/description>" --json
+taskwing ask "<keywords from task title/description>"
 ```
 
 ## Step 4: Claim the Task
@@ -130,9 +130,9 @@ Proceed with the task, following the patterns and respecting the constraints sho
 ## Useful Variants
 
 ```bash
-taskwing task list --json                    # see all tasks
-taskwing task list --status pending --json   # identify next pending task
-taskwing task next --auto-start --json       # claim immediately, single call
+taskwing task list                    # see all tasks
+taskwing task list --status pending   # identify next pending task
+taskwing task next --auto-start       # claim immediately, single call
 ```
 
 Use `/taskwing:context` to check active plan progress.

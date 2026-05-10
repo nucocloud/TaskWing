@@ -156,7 +156,7 @@ Plan saved and set as active.
 **After presenting the plan summary, immediately start working on the first task.**
 
 ```bash
-taskwing task next --auto-start --json
+taskwing task next --auto-start
 ```
 
 Do NOT wait for the user to say `/taskwing:next` - the plan was just approved, start executing.
@@ -298,7 +298,7 @@ Plan saved and set as active.
 **After presenting the plan summary, immediately start working on the first task.**
 
 ```bash
-taskwing task next --auto-start --json
+taskwing task next --auto-start
 ```
 
 Do NOT wait for the user to say `/taskwing:next` - the plan was just approved, start executing.

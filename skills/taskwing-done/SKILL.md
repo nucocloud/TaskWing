@@ -29,7 +29,7 @@ Execute these steps IN ORDER.
 Run:
 
 ```bash
-taskwing task current --json
+taskwing task current
 ```
 
 If the command reports no active task, inform the user and stop.
@@ -84,7 +84,7 @@ Run:
 taskwing task complete <task_id> \
   --summary "<the structured summary from Step 3>" \
   --files path/to/file1.go,path/to/file2.go \
-  --json
+ 
 ```
 
 (`<task_id>` is the value from Step 1; quote the summary to preserve newlines.)

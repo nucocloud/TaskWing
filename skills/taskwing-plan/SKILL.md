@@ -37,9 +37,9 @@ Hard gate for this command:
 All plan actions go through a single CLI verb:
 
 ```bash
-taskwing plan --params '<JSON params>'
+taskwing plan tool --params '<JSON params>'
 # or
-echo '<JSON params>' | taskwing plan --params -
+echo '<JSON params>' | taskwing plan tool --params -
 ```
 
 The output is always JSON (a `PlanToolResult`). Parse the response and extract the
@@ -71,7 +71,7 @@ Use `$ARGUMENTS` as the goal and proceed to Step 1.
 ## Step 1: Initial Clarification
 
 ```bash
-taskwing plan --params '{"action":"clarify","goal":"<goal from Step 0>"}'
+taskwing plan tool --params '{"action":"clarify","goal":"<goal from Step 0>"}'
 ```
 
 Extract from the JSON result: `clarify_session_id`, `questions`, `goal_summary`,
@@ -87,14 +87,14 @@ Present each question to the user exactly as returned. Wait for the user to resp
 **If user says "auto" or "skip":**
 
 ```bash
-taskwing plan --params '{"action":"clarify","clarify_session_id":"<id>","auto_answer":true}'
+taskwing plan tool --params '{"action":"clarify","clarify_session_id":"<id>","auto_answer":true}'
 ```
 
 **If user provides answers:**
 Pipe a JSON params blob to stdin to keep multi-line answers safe:
 
 ```bash
-cat <<'EOF' | taskwing plan --params -
+cat <<'EOF' | taskwing plan tool --params -
 {
   "action": "clarify",
   "clarify_session_id": "<id from previous clarify step>",
@@ -118,7 +118,7 @@ If approval is not explicit, STOP and use the refusal text above.
 ## Step 4: Generate Plan
 
 ```bash
-cat <<'EOF' | taskwing plan --params -
+cat <<'EOF' | taskwing plan tool --params -
 {
   "action": "generate",
   "goal": "<original goal>",
@@ -174,7 +174,7 @@ Wait for user response, then use that as the goal.
 ## Step 2: Clarify Goal
 
 ```bash
-taskwing plan --params '{"action":"clarify","goal":"<goal from Step 1>","mode":"interactive"}'
+taskwing plan tool --params '{"action":"clarify","goal":"<goal from Step 1>","mode":"interactive"}'
 ```
 
 **CRITICAL: Present all clarifying questions to the user. Do NOT answer them yourself.**
@@ -191,7 +191,7 @@ If approval is not explicit, STOP and use the refusal text above.
 ## Step 3: Decompose into Phases
 
 ```bash
-cat <<'EOF' | taskwing plan --params -
+cat <<'EOF' | taskwing plan tool --params -
 {
   "action": "decompose",
   "clarify_session_id": "<id from Step 2>",
@@ -228,7 +228,7 @@ Expected tasks: [N]
 For each approved phase:
 
 ```bash
-taskwing plan --params '{"action":"expand","plan_id":"<plan_id>","phase_id":"<phase_id>"}'
+taskwing plan tool --params '{"action":"expand","plan_id":"<plan_id>","phase_id":"<phase_id>"}'
 ```
 
 This returns 2-4 detailed tasks for the phase. Present them:
@@ -265,7 +265,7 @@ Repeat for each phase until all are expanded.
 After all phases are expanded:
 
 ```bash
-taskwing plan --params '{"action":"finalize","plan_id":"<plan_id>"}'
+taskwing plan tool --params '{"action":"finalize","plan_id":"<plan_id>"}'
 ```
 
 ## Step 6: Present Final Summary

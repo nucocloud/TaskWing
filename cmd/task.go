@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/josephgoksu/TaskWing/internal/app"
 	"github.com/josephgoksu/TaskWing/internal/render"
 	"github.com/josephgoksu/TaskWing/internal/task"
@@ -192,25 +191,15 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		return printJSON(jsonTasks)
 	}
 
-	// Render styled table
-	ui.RenderPageHeader("TaskWing Task List", "")
-
 	if len(allTasks) == 0 {
-		subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-		fmt.Println(subtle.Render("\nNo tasks match the filters."))
+		fmt.Println("no tasks match the filters")
 		if statusFilter != "" || priorityFilter > 0 || scopeFilter != "" {
-			fmt.Println(subtle.Render("Try adjusting your filter criteria."))
+			fmt.Println("try adjusting your filter criteria")
 		}
 		return nil
 	}
 
-	// Styles for colored output
-	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true) // Cyan, bold
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255"))        // White
-	scopeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Italic(true)
-	subtle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-
-	// Group tasks by plan for display
+	// Group tasks by plan for display.
 	tasksByPlan := make(map[string][]taskWithPlan)
 	planOrder := []string{}
 	for _, tp := range allTasks {
@@ -220,122 +209,50 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		tasksByPlan[tp.PlanID] = append(tasksByPlan[tp.PlanID], tp)
 	}
 
-	planHeader := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	pretty := ui.IsInteractive()
+	if pretty {
+		ui.SectionHeader("Tasks")
+	}
 
-	for _, planID := range planOrder {
+	for i, planID := range planOrder {
 		tasks := tasksByPlan[planID]
 		if len(tasks) == 0 {
 			continue
 		}
 
-		// Plan header
-		goal := tasks[0].Goal
-		if len(goal) > 60 {
-			goal = goal[:57] + "..."
+		// Plan header per plan group.
+		if i > 0 {
+			fmt.Println()
 		}
-		fmt.Printf("\n%s %s\n", planHeader.Render("◆"), planHeader.Render(goal))
-		fmt.Printf("  %s\n", subtle.Render(planID))
+		fmt.Printf("plan     %s\n", planID)
+		if goal := strings.TrimSpace(tasks[0].Goal); goal != "" {
+			fmt.Printf("goal     %s\n", truncateRunes(goal, 70))
+		}
+		fmt.Println()
 
-		// Table header
-		fmt.Printf("\n  %-14s %-10s %4s  %-8s  %s\n",
-			subtle.Render("ID"),
-			subtle.Render("STATUS"),
-			subtle.Render("PRI"),
-			subtle.Render("SCOPE"),
-			subtle.Render("TITLE"))
-		fmt.Println(subtle.Render("  " + strings.Repeat("─", 80)))
-
-		// Task rows
+		// Render the table.
+		tbl := render.NewTable(os.Stdout, []string{"ID", "STATUS", "PRI", "SCOPE", "TITLE"}).
+			Width(100).
+			RightAlign(2)
 		for _, tp := range tasks {
 			t := tp.Task
-
-			// ID - Cyan and bold, use ShortID for consistent display
-			// Full task IDs are 13 chars (task-xxxxxxxx), display fits in 14-char column
-			tid := utils.ShortID(t.ID, utils.TaskIDLength)
-			idStr := idStyle.Render(tid)
-
-			// Status - Color coded
-			statusStr := formatTaskStatus(t.Status)
-
-			// Priority - Color coded by urgency
-			priStr := formatPriority(t.Priority)
-
-			// Scope
 			scope := t.Scope
 			if scope == "" && len(t.Keywords) > 0 {
 				scope = t.Keywords[0]
 			}
-			if len(scope) > 8 {
-				scope = scope[:7] + "…"
-			}
-			scopeStr := scopeStyle.Render(fmt.Sprintf("%-8s", scope))
-
-			// Title
-			title := t.Title
-			if len(title) > 45 {
-				title = title[:42] + "..."
-			}
-			titleStr := titleStyle.Render(title)
-
-			fmt.Printf("  %-14s %-10s %s  %s  %s\n", idStr, statusStr, priStr, scopeStr, titleStr)
+			tbl.Row(
+				utils.ShortID(t.ID, utils.TaskIDLength),
+				string(t.Status),
+				fmt.Sprintf("%d", t.Priority),
+				scope,
+				t.Title,
+			)
 		}
+		tbl.Render()
 	}
 
-	// Summary
-	fmt.Printf("\n%s\n", subtle.Render(fmt.Sprintf("Total: %d task(s) across %d plan(s)", len(allTasks), len(planOrder))))
-
+	fmt.Printf("\ntotal    %d task(s) across %d plan(s)\n", len(allTasks), len(planOrder))
 	return nil
-}
-
-// formatTaskStatus returns a color-coded status string.
-// Covers all known TaskStatus values with an "unknown" fallback for unexpected values.
-func formatTaskStatus(status task.TaskStatus) string {
-	switch status {
-	case task.StatusCompleted, "done":
-		// Green - successfully completed
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("[done]    ")
-	case task.StatusInProgress:
-		// Orange/bold - actively working
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Render("[active]  ")
-	case task.StatusFailed:
-		// Red - execution or verification failed
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("[failed]  ")
-	case task.StatusVerifying:
-		// Blue - running validation
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Render("[verify]  ")
-	case task.StatusPending:
-		// Gray - ready to be picked up
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("[pending] ")
-	case task.StatusDraft:
-		// Dim gray - initial creation, not ready
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("[draft]   ")
-	case task.StatusBlocked:
-		// Red/dim - waiting on dependencies
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("124")).Render("[blocked] ")
-	case task.StatusReady:
-		// Green/dim - dependencies met, ready for execution
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("28")).Render("[ready]   ")
-	default:
-		// Unknown status - neutral gray with label showing the actual value
-		// This ensures we never panic on unexpected values
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("[unknown] ")
-	}
-}
-
-// formatPriority returns a color-coded priority string.
-func formatPriority(priority int) string {
-	var color lipgloss.Color
-	switch {
-	case priority <= 20:
-		color = lipgloss.Color("196") // Red - critical
-	case priority <= 50:
-		color = lipgloss.Color("214") // Orange - high
-	case priority <= 75:
-		color = lipgloss.Color("226") // Yellow - medium
-	default:
-		color = lipgloss.Color("245") // Gray - low
-	}
-	return lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%3d ", priority))
 }
 
 var taskShowCmd = &cobra.Command{
@@ -377,29 +294,7 @@ Examples:
 			return printJSON(t)
 		}
 
-		fmt.Printf("Task: %s\n", t.ID)
-		fmt.Printf("Plan: %s\n", t.PlanID)
-		fmt.Printf("Title: %s\n", t.Title)
-		if t.Description != "" {
-			fmt.Printf("Description: %s\n", t.Description)
-		}
-		fmt.Printf("Status: %s\n", t.Status)
-		fmt.Printf("Priority: %d\n", t.Priority)
-		if t.AssignedAgent != "" {
-			fmt.Printf("Assigned Agent: %s\n", t.AssignedAgent)
-		}
-		if len(t.AcceptanceCriteria) > 0 {
-			fmt.Println("\nAcceptance Criteria:")
-			for _, a := range t.AcceptanceCriteria {
-				fmt.Printf("  - %s\n", a)
-			}
-		}
-		if len(t.ValidationSteps) > 0 {
-			fmt.Println("\nValidation Steps:")
-			for _, v := range t.ValidationSteps {
-				fmt.Printf("  - %s\n", v)
-			}
-		}
+		renderTaskRecord(t)
 		return nil
 	},
 }
